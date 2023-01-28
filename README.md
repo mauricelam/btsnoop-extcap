@@ -1,15 +1,13 @@
 # Btsnoop parser library for Rust
----------------------------------
 
 This library provides parsing capaibilities for [btsnoop logs](https://fte.com/webhelpii/bpa600/Content/Technical_Information/BT_Snoop_File_Format.htm). 
 
-```
+```toml
 [dependencies]
 btsnoop = "0.1.0"
 ```
 
 ## Example
-----------
 
 ```rust
 use btsnoop::parse_btsnoop_file;
