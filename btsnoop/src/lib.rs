@@ -1,9 +1,22 @@
 //! A parser for the BTSnoop file format, which is a bluetooth HCI logs format similar to the snoop
 //! format, as documented in RFC 1761.
-//! Reference: https://fte.com/webhelpii/bpa600/Content/Technical_Information/BT_Snoop_File_Format.htm
+//! Reference: <https://fte.com/webhelpii/bpa600/Content/Technical_Information/BT_Snoop_File_Format.htm>
 //!
 //! Notably this is used in Android and can be captured from your device following instructions from
-//! https://source.android.com/docs/core/connect/bluetooth/verifying_debugging#debugging-options.
+//! [Verifying and Debugging Bluetooth](https://source.android.com/docs/core/connect/bluetooth/verifying_debugging#debugging-options)
+//! on source.android.com.
+//!
+//! ## Example
+//!
+//! ```rust
+//! use btsnoop::parse_btsnoop_file;
+//!
+//! let btsnoop_bytes: &[u8] = include_bytes!("testdata/btsnoop_hci.log");
+//! let file: btsnoop::File = parse_btsnoop_file(btsnoop_bytes).unwrap();
+//! for packet in file.packets {
+//!     println!("Packet={:x?}", packet.packet_data);
+//! }
+//! ```
 
 use nom_derive::{Nom, Parse};
 use num_derive::FromPrimitive;
@@ -30,19 +43,19 @@ pub enum DatalinkType {
     HciSerial = 1004,
 }
 
-/// The file header contains general metadata about the packet file and format of the packets it 
+/// The file header contains general metadata about the packet file and format of the packets it
 /// contains.
 #[derive(Nom, Debug)]
 pub struct Header<'a> {
     #[nom(Tag(b"btsnoop\0"))]
     pub identification_pattern: &'a [u8],
-    #[nom(Verify="*version == 1")]
+    #[nom(Verify = "*version == 1")]
     pub version: u32,
     pub datalink_type: DatalinkType,
 }
 
 /// Direction of data transfer.
-/// 
+///
 /// Direction is relative to the host, meaning for controllers, `Sent` means
 /// from host to controller, and `Received` means from controller to host.
 #[derive(Debug, FromPrimitive)]
@@ -92,6 +105,7 @@ impl<'a> Parse<&'a [u8]> for PacketFlags {
     }
 }
 
+/// A packet record in the logs.
 #[derive(Nom, Debug)]
 pub struct Packet<'a> {
     /// Number of bytes in the captured packet, as received via a network.
@@ -120,17 +134,43 @@ pub struct Packet<'a> {
     pub packet_data: &'a [u8],
 }
 
+/// Error type returned in `parse_btsnoop_file` if parsing failed.
 #[derive(Error, Debug)]
 pub enum Error<'a> {
-    #[error("unable to parse: {0}")]
-    ParseError(String),
+    /// Error parsing the input data.
+    #[error(transparent)]
+    ParseError(#[from] nom::Err<nom::error::Error<Vec<u8>>>),
+    /// The input data was successfully parsed, but there is data leftover. This can be a symptom
+    /// of malformed data if the length field in the packet is wrong.
     #[error("unexpected data remaining")]
     UnexpectedData(&'a [u8]),
 }
 
-/// Parses a given btsnoop file. 
+// Converts the nom error from holding &[u8] (the input type) to holding Vec<u8>, since
+// std::error::Error's `source` field doesn't allow non-'static lifetimes.
+impl<'a> From<nom::Err<nom::error::Error<&[u8]>>> for Error<'a> {
+    fn from(nom_error: nom::Err<nom::error::Error<&[u8]>>) -> Self {
+        Self::ParseError(match nom_error {
+            nom::Err::Incomplete(n) => nom::Err::Incomplete(n),
+            nom::Err::Error(nom::error::Error { input, code }) => {
+                nom::Err::Error(nom::error::Error {
+                    input: input.to_vec(),
+                    code,
+                })
+            }
+            nom::Err::Failure(nom::error::Error { input, code }) => {
+                nom::Err::Failure(nom::error::Error {
+                    input: input.to_vec(),
+                    code,
+                })
+            }
+        })
+    }
+}
+
+/// Parses a given btsnoop file.
 pub fn parse_btsnoop_file(input: &[u8]) -> Result<File, Error> {
-    let (rem, file) = File::parse(input).map_err(|e| Error::ParseError(format!("{e:?}")))?;
+    let (rem, file) = File::parse(input)?;
     if rem.is_empty() {
         Ok(file)
     } else {
