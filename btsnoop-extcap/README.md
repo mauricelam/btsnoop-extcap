@@ -14,6 +14,8 @@ and will show a live stream of Bluetooth HCI events from the selected device.
 
 Detected devices are shown in Wireshark's __Capture__ interface list.
 
+<img width="1462" alt="wireshark" src="https://user-images.githubusercontent.com/1264702/216287342-c0d7a30c-0fa0-4acd-a535-f95323427eca.png">
+
 ## Instructions to turn on btsnoop log capturing
 
 1. Enable __Developer options__ on the device.
