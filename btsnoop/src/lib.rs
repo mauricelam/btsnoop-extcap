@@ -28,7 +28,7 @@ use thiserror::Error;
 #[derive(Nom, Debug)]
 pub struct File<'a> {
     /// The file's header.
-    pub header: Header<'a>,
+    pub header: FileHeader<'a>,
     /// The list of packets contained in this file.
     pub packets: Vec<Packet<'a>>,
 }
@@ -46,12 +46,20 @@ pub enum DatalinkType {
 /// The file header contains general metadata about the packet file and format of the packets it
 /// contains.
 #[derive(Nom, Debug)]
-pub struct Header<'a> {
+pub struct FileHeader<'a> {
+    /// The magic header identifying the packet format. Must always be `b"btsnoop\0"`.
     #[nom(Tag(b"btsnoop\0"))]
     pub identification_pattern: &'a [u8],
+    /// The version of the btsnoop file. Only version 1 is supported.
     #[nom(Verify = "*version == 1")]
     pub version: u32,
+    /// The datalink type for the packet records that follow.
     pub datalink_type: DatalinkType,
+}
+
+impl<'a> FileHeader<'a> {
+    /// The fixed length of a file header.
+    pub const LENGTH: usize = 16;
 }
 
 /// Direction of data transfer.
@@ -76,7 +84,7 @@ pub enum CommandFlag {
 fn parse_single_bit_enum<Enum: FromPrimitive>(
     input: (&[u8], usize),
 ) -> nom::IResult<(&[u8], usize), Enum> {
-    nom::combinator::map_opt(nom::bits::complete::take(1_usize), Enum::from_u8)(input)
+    nom::combinator::map_opt(nom::bits::streaming::take(1_usize), Enum::from_u8)(input)
 }
 
 /// The packet flags field.
@@ -94,7 +102,7 @@ impl<'a> Parse<&'a [u8]> for PacketFlags {
             nom::bits::bits(nom::sequence::tuple((
                 parse_single_bit_enum::<DirectionFlag>,
                 parse_single_bit_enum::<CommandFlag>,
-                nom::bits::complete::take(30_usize),
+                nom::bits::streaming::take(30_usize),
             ))),
             |(direction, command, reserved)| PacketFlags {
                 direction,
@@ -105,9 +113,9 @@ impl<'a> Parse<&'a [u8]> for PacketFlags {
     }
 }
 
-/// A packet record in the logs.
+/// Header fields for a packet record.
 #[derive(Nom, Debug)]
-pub struct Packet<'a> {
+pub struct PacketHeader {
     /// Number of bytes in the captured packet, as received via a network.
     pub original_length: u32,
     /// Length of the `packet_data` field. This is the number of bytes included in this packet
@@ -127,10 +135,38 @@ pub struct Packet<'a> {
     /// See the [bluez source code](https://github.com/bluez/bluez/blob/9be85f867856195e16c9b94b605f65f6389eda33/tools/hcidump.c#L240)
     /// to see how it is converted from a unix timestamp.
     pub timestamp_microseconds: i64,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct TimeVal {
+    pub sec: i64,
+    pub usec: i64,
+}
+
+impl PacketHeader {
+    /// The fixed length of a packet header.
+    pub const LENGTH: usize = 24;
+
+    /// Returns the timestamp in the [TimeVal] struct format.
+    pub fn timestamp_tv(&self) -> TimeVal {
+        eprintln!("timestamp={}", self.timestamp_microseconds);
+        let num_us_since_unix = self.timestamp_microseconds - 0x00dcddb30f2f8000;
+        TimeVal {
+            sec: num_us_since_unix / 1_000_000,
+            usec: num_us_since_unix % 1_000_000 * 1000,
+        }
+    }
+}
+
+/// A packet record in the logs.
+#[derive(Nom, Debug)]
+pub struct Packet<'a> {
+    /// Header fields for this packet
+    pub header: PacketHeader,
     /// A byte string, `included_length` bytes long, that was captured by the system, beginning with
     /// its datalink header. The format of the bytes can be inferred from
     /// `File.header.datalink_type`
-    #[nom(Take(included_length))]
+    #[nom(Take(header.included_length))]
     pub packet_data: &'a [u8],
 }
 
@@ -199,5 +235,37 @@ mod tests {
         assert!(!rem.is_empty());
         // Header should still be available
         assert_eq!(file.header.identification_pattern, b"btsnoop\0");
+    }
+
+    #[test]
+    fn timestamp() {
+        let hci_bytes = include_bytes!("testdata/btsnoop_hci.log");
+        let (rem, file) = File::parse(hci_bytes).unwrap();
+        assert!(rem.is_empty(), "Unexpected remaining bytes: {rem:?}");
+        assert_eq!(
+            file.packets[0].header.timestamp_tv(),
+            TimeVal {
+                sec: 1674874116,
+                usec: 395644000,
+            },
+        );
+    }
+
+    #[test]
+    fn timestamp_at_2000() {
+        let packet_header = PacketHeader {
+            original_length: 10,
+            included_length: 10,
+            packet_flags: PacketFlags { direction: DirectionFlag::Sent, command: CommandFlag::Data, reserved: 0 },
+            culmulative_drops: 1,
+            timestamp_microseconds: 0x00E03AB44A676000, // 2000-01-01 00:00:00
+        };
+        assert_eq!(
+            packet_header.timestamp_tv(),
+            TimeVal {
+                sec: 946684800, // 2000-01-01 00:00:00
+                usec: 0,
+            }
+        );
     }
 }
