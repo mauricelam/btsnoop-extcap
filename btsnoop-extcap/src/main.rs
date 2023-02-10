@@ -250,13 +250,14 @@ async fn main() -> anyhow::Result<()> {
         let exe_path = std::env::current_exe()
             .map(|exe| {
                 let path = exe.to_string_lossy();
-                format!("\n  ln -s \"{path}\" ~/.config/wireshark/extcap/")
+                format!("\n  ln -s \"{path}\" ~/.config/wireshark/extcap/btsnoop-extcap")
             })
             .unwrap_or_default();
         Err(anyhow!(
             concat!(
-                "Missing command. To use this extcap plugin, symlink or copy this executable ",
-                "to your Wireshark extcap directory {}"
+                "Unknown extcap phase. This is an extcap plugin meant to be used with Wireshark or tshark.",
+                "To install this plugin for use with Wireshark, symlink or copy this executable ",
+                "to your Wireshark extcap directory{}",
             ),
             exe_path
         ))
