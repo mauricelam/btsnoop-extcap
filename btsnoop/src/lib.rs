@@ -18,6 +18,7 @@
 //! }
 //! ```
 
+use std::time::Duration;
 use nom_derive::{Nom, Parse};
 use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
@@ -137,24 +138,14 @@ pub struct PacketHeader {
     pub timestamp_microseconds: i64,
 }
 
-#[derive(Debug, PartialEq, Eq)]
-pub struct TimeVal {
-    pub sec: i64,
-    pub usec: i64,
-}
-
 impl PacketHeader {
     /// The fixed length of a packet header.
     pub const LENGTH: usize = 24;
 
-    /// Returns the timestamp in the [TimeVal] struct format.
-    pub fn timestamp_tv(&self) -> TimeVal {
-        eprintln!("timestamp={}", self.timestamp_microseconds);
+    /// Returns the timestamp for the packet, in the [Duration] since unix epoch.
+    pub fn timestamp(&self) -> Duration {
         let num_us_since_unix = self.timestamp_microseconds - 0x00dcddb30f2f8000;
-        TimeVal {
-            sec: num_us_since_unix / 1_000_000,
-            usec: num_us_since_unix % 1_000_000 * 1000,
-        }
+        Duration::from_micros(num_us_since_unix.try_into().unwrap())
     }
 }
 
@@ -243,11 +234,8 @@ mod tests {
         let (rem, file) = File::parse(hci_bytes).unwrap();
         assert!(rem.is_empty(), "Unexpected remaining bytes: {rem:?}");
         assert_eq!(
-            file.packets[0].header.timestamp_tv(),
-            TimeVal {
-                sec: 1674874116,
-                usec: 395644000,
-            },
+            file.packets[0].header.timestamp(),
+            Duration::new(1674874116, 395644000),
         );
     }
 
@@ -256,16 +244,17 @@ mod tests {
         let packet_header = PacketHeader {
             original_length: 10,
             included_length: 10,
-            packet_flags: PacketFlags { direction: DirectionFlag::Sent, command: CommandFlag::Data, reserved: 0 },
+            packet_flags: PacketFlags {
+                direction: DirectionFlag::Sent,
+                command: CommandFlag::Data,
+                reserved: 0,
+            },
             culmulative_drops: 1,
             timestamp_microseconds: 0x00E03AB44A676000, // 2000-01-01 00:00:00
         };
         assert_eq!(
-            packet_header.timestamp_tv(),
-            TimeVal {
-                sec: 946684800, // 2000-01-01 00:00:00
-                usec: 0,
-            }
+            packet_header.timestamp(),
+            Duration::from_secs(946684800), // 2000-01-01 00:00:00
         );
     }
 }

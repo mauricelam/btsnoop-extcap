@@ -12,9 +12,9 @@ fn list_interfaces() {
     cmd.assert()
         .success()
         .stdout(predicate::str::contains(concat!(
-            "interface {value=btsnoop-TEST_SERIAL_1}{display=BTsnoop Test device 1 TEST_SERIAL_1}\n",
-            "interface {value=btsnoop-TEST_SERIAL_2}{display=BTsnoop Test device 2 TEST_SERIAL_2}"
-        )));
+        "interface {value=btsnoop-TEST_SERIAL_1}{display=BTsnoop Test device 1 TEST_SERIAL_1}\n",
+        "interface {value=btsnoop-TEST_SERIAL_2}{display=BTsnoop Test device 2 TEST_SERIAL_2}"
+    )));
 }
 
 fn contains(needle: &[u8]) -> impl Fn(&[u8]) -> bool + '_ {
@@ -30,7 +30,9 @@ fn capture() {
         .arg("--fifo")
         .arg("/dev/stdout")
         .arg("--btsnoop-log-file-path")
-        .arg("local:tests/testdata/btsnoop_hci.log");
+        .arg("local:tests/testdata/btsnoop_hci.log")
+        .arg("--display-delay")
+        .arg("0");
     cmd.assert()
         .success()
         .stdout(predicate::function(contains(b"Pixel 6 Pro")));

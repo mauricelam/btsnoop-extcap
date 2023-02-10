@@ -4,7 +4,7 @@
 
 ```sh
 $ cargo build --release
-$ cp target/release/btsnoop-extcap ~/.config/wireshark/extcap
+$ mkdir -p ~/.config/wireshark/extcap/ && cp target/release/btsnoop-extcap ~/.config/wireshark/extcap/
 ```
 
 Root is required on the selected Android device.
