@@ -1,5 +1,7 @@
+#![deny(unused_must_use)]
+
 use crate::{
-    adb::{BtsnoopLogMode, BtsnoopLogSettings},
+    adb::{AdbRootError, BtsnoopLogMode, BtsnoopLogSettings},
     extcap::{ControlPacket, ExtcapControlSenderTrait},
 };
 use anyhow::anyhow;
@@ -24,7 +26,7 @@ use tokio::{
     fs::File,
     io::{AsyncRead, AsyncReadExt},
 };
-use util::try_read_exact;
+use util::AsyncReadExt as _;
 
 mod adb;
 mod btsnoop_ext;
@@ -57,7 +59,7 @@ pub struct BtsnoopArgs {
 /// Reads from the input, adds the corresponding PCAP headers, and writes to the
 /// output data. The `display_delay` can also be set such that packets read
 /// during an initial time period will not be displayed.
-async fn write_pcap_packets<W: Write, R: AsyncRead + Unpin>(
+async fn write_pcap_packets<W: Write, R: AsyncRead + Unpin + Send>(
     mut input_reader: R,
     output_writer: W,
     display_delay: Duration,
@@ -72,8 +74,9 @@ async fn write_pcap_packets<W: Write, R: AsyncRead + Unpin>(
     FileHeader::parse(&header_buf).unwrap();
     let mut pcap_writer = PcapWriter::with_header(output_writer, pcap_header).unwrap();
     let start_time = Instant::now();
-    while let Some(packet_header_buf) =
-        try_read_exact::<_, { PacketHeader::LENGTH }>(&mut input_reader).await?
+    while let Some(packet_header_buf) = input_reader
+        .try_read_exact::<{ PacketHeader::LENGTH }>()
+        .await?
     {
         let (_rem, packet_header) = PacketHeader::parse(&packet_header_buf).unwrap();
         let mut packet_buf: Vec<u8> = vec![0_u8; packet_header.included_length as usize];
@@ -132,10 +135,18 @@ async fn print_packets(
     let btsnoop_log_file_path = btsnoop_log_file_path
         .as_deref()
         .unwrap_or("/data/misc/bluetooth/logs/btsnoop_hci.log");
-    if let Some(test_file) = btsnoop_log_file_path.strip_prefix("local:") {
-        write_pcap_packets(File::open(test_file).await?, writer, display_delay).await?;
+    let write_result = if let Some(test_file) = btsnoop_log_file_path.strip_prefix("local:") {
+        write_pcap_packets(File::open(test_file).await?, writer, display_delay).await
     } else {
-        adb::root(serial).await?;
+        match adb::root(serial).await {
+            Err(e @ AdbRootError::RootDeclined) => {
+                extcap_control.info_message("Unable to run `adb root`. Make sure your device is on a userdebug or eng build").await;
+                tokio::time::sleep(Duration::from_secs(1)).await;
+                Err(e)?
+            }
+            Err(e) => Err(e)?,
+            Ok(_) => (),
+        }
         if BtsnoopLogSettings::mode(serial).await? == BtsnoopLogMode::Full {
             extcap_control.disable_button(0).await;
             extcap_control.enable_button(1).await;
@@ -152,13 +163,16 @@ async fn print_packets(
         .spawn()?;
         info!("Running adb tail -F -c +0 {btsnoop_log_file_path}");
         let stdout = cmd.stdout.as_mut().unwrap();
-        write_pcap_packets(stdout, writer, display_delay).await?;
-        info!("Print packet finished");
-    }
+        write_pcap_packets(stdout, writer, display_delay).await
+    };
     extcap_control
         .status_message("BT capture connection closed")
         .await;
-    Ok(())
+    // Wireshark overwrites the status bar when we exit, so wait a few seconds
+    // so the user at least has a chance to read the message and know why it's
+    // flashing.
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    write_result.map(|_| ())
 }
 
 #[tokio::main]

@@ -3,10 +3,11 @@
 //! act as capture interfaces.
 //!
 //! References:
-//! * https://www.wireshark.org/docs/wsdg_html_chunked/ChCaptureExtcap.html
-//! * https://www.wireshark.org/docs/man-pages/extcap.html
-//! * https://gitlab.com/wireshark/wireshark/-/blob/master/doc/extcap_example.py
+//! * <https://www.wireshark.org/docs/wsdg_html_chunked/ChCaptureExtcap.html>
+//! * <https://www.wireshark.org/docs/man-pages/extcap.html>
+//! * <https://gitlab.com/wireshark/wireshark/-/blob/master/doc/extcap_example.py>
 
+use crate::util::AsyncReadExt as _;
 use anyhow::anyhow;
 use async_trait::async_trait;
 use clap::Args;
@@ -22,8 +23,6 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     sync::mpsc,
 };
-
-use crate::util::try_read_exact;
 
 /// The arguments defined by extcap. These arguments are usable as a clap
 /// parser.
@@ -140,9 +139,9 @@ pub struct ExtcapArgs {
     /// The extcap interface to perform the operation on.
     ///
     /// This should match one of the values returned earlier in
-    /// [`extcap_interfaces`], and is used in the [`capture`][Self::capture],
-    /// [`extcap_config`][Self::extcap_config], and
-    /// [`extcap_dlts`][Self::extcap_dtls] phases.
+    /// [`extcap_interfaces`][Self::extcap_interfaces], and is used in the
+    /// [`capture`][Self::capture], [`extcap_config`][Self::extcap_config], and
+    /// [`extcap_dlts`][Self::extcap_dlts] phases.
     #[arg(long)]
     pub extcap_interface: Option<String>,
 
@@ -322,7 +321,8 @@ impl ExtcapControl {
 
     /// Read one control packet from the given input file.
     async fn read_control_packet(in_file: &mut File) -> anyhow::Result<ControlPacket<'static>> {
-        let header_bytes = try_read_exact::<_, 6>(in_file)
+        let header_bytes = in_file
+            .try_read_exact::<6>()
             .await?
             .ok_or_else(|| std::io::Error::from(std::io::ErrorKind::UnexpectedEof))?;
         debug!(
@@ -403,6 +403,9 @@ impl ExtcapControl {
 /// See <https://www.wireshark.org/docs/wsdg_html_chunked/ChCaptureExtcap.html> for details.
 #[async_trait]
 pub trait ExtcapControlSenderTrait {
+
+    const UNUSED_CONTROL_NUMBER: u8 = 255;
+
     async fn send(&self, packet: ControlPacket<'static>);
 
     /// Enable a button with the given control number.
@@ -417,11 +420,31 @@ pub trait ExtcapControlSenderTrait {
             .await
     }
 
-    /// Shows a message in the information bar
+    /// Shows a message in an information dialog popup.
     async fn info_message(&self, message: &'static str) {
         self.send(ControlPacket::new(
-            255,
+            Self::UNUSED_CONTROL_NUMBER,
             ControlCommand::InformationMessage,
+            message.as_bytes(),
+        ))
+        .await
+    }
+
+    /// Shows a message in a warning dialog popup.
+    async fn warning_message(&self, message: &'static str) {
+        self.send(ControlPacket::new(
+            Self::UNUSED_CONTROL_NUMBER,
+            ControlCommand::WarningMessage,
+            message.as_bytes(),
+        ))
+        .await
+    }
+
+    /// Shows a message in an error dialog popup.
+    async fn error_message(&self, message: &'static str) {
+        self.send(ControlPacket::new(
+            Self::UNUSED_CONTROL_NUMBER,
+            ControlCommand::ErrorMessage,
             message.as_bytes(),
         ))
         .await
@@ -430,7 +453,7 @@ pub trait ExtcapControlSenderTrait {
     /// Shows a message in the status bar
     async fn status_message(&self, message: &'static str) {
         self.send(ControlPacket::new(
-            255,
+            Self::UNUSED_CONTROL_NUMBER,
             ControlCommand::StatusbarMessage,
             message.as_bytes(),
         ))
@@ -453,7 +476,7 @@ impl ExtcapControlSenderTrait for mpsc::Sender<ControlPacket<'static>> {
 
 // Convenience impl to allow `Option::None` to be a no-op sender.
 #[async_trait]
-impl <T: ExtcapControlSenderTrait + Sync> ExtcapControlSenderTrait for Option<T> {
+impl<T: ExtcapControlSenderTrait + Sync> ExtcapControlSenderTrait for Option<T> {
     /// Sends a control message to Wireshark.
     async fn send(&self, packet: ControlPacket<'static>) {
         if let Some(sender) = self {

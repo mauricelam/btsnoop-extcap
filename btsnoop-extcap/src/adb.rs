@@ -3,15 +3,38 @@
 use std::{io::BufRead, process::Stdio, time::Duration};
 
 use anyhow::anyhow;
+use log::debug;
+use thiserror::Error;
 use tokio::process::Command;
 
+#[derive(Error, Debug)]
+pub enum AdbRootError {
+    #[error("Root was declined. Check that you are on a userdebug or eng build.")]
+    RootDeclined,
+
+    #[error(transparent)]
+    IoError(#[from] std::io::Error),
+}
+
 /// Run adb root on the given device.
-pub async fn root(serial: &str) -> tokio::io::Result<()> {
+pub async fn root(serial: &str) -> Result<(), AdbRootError> {
     Command::new("adb")
         .args(["-s", serial, "root"])
+        .stdout(Stdio::null())
         .spawn()?
         .wait()
         .await?;
+    let shell_uid = shell(serial, "id -u")
+        .stdout(Stdio::piped())
+        .spawn()?
+        .wait_with_output()
+        .await?
+        .stdout;
+    debug!("Shell UID={shell_uid:?}");
+    if shell_uid != b"0\n" {
+        // If only `adb root` will return a different exit code...
+        Err(AdbRootError::RootDeclined)?;
+    }
     Ok(())
 }
 
@@ -39,6 +62,7 @@ pub struct AdbDevice {
 
 /// Query `adb devices` for the list of devices, and return a vec of [`AdbDevice`] structs.
 pub async fn adb_devices(adb_path: Option<String>) -> anyhow::Result<Vec<AdbDevice>> {
+    debug!("Getting adb devices from {adb_path:?}");
     let adb_path = adb_path.as_deref().unwrap_or("adb");
     if adb_path == "mock" {
         return Ok(mock_adb_devices());
@@ -49,6 +73,10 @@ pub async fn adb_devices(adb_path: Option<String>) -> anyhow::Result<Vec<AdbDevi
         .stdout(Stdio::piped())
         .spawn()?;
     let output = cmd.wait_with_output().await?;
+    debug!(
+        "Found adb devices {:?}",
+        std::str::from_utf8(&output.stdout)
+    );
     let re = regex::Regex::new(r"([a-zA-Z0-9]+)\s+device.*model:([^ ]+).*")?;
     Ok(output
         .stdout
