@@ -3,8 +3,20 @@
 ## Installation
 
 ```sh
-$ cargo build --release
-$ mkdir -p ~/.config/wireshark/extcap/ && ln -s $PWD/target/release/btsnoop-extcap ~/.config/wireshark/extcap/
+$ cargo install btsnoop-extcap
+
+# Running btsnoop-extcap from command line is not part of the normal workflow,
+# but it will print out installation instructions. For example:
+$ btsnoop-extcap
+Unknown extcap phase. This is an extcap plugin meant to be used with Wireshark or tshark.
+To install this plugin for use with Wireshark, symlink or copy this executable
+to your Wireshark extcap directory
+    mkdir -p ~/.config/wireshark/extcap/ && \
+    ln -s "~/.cargo/bin/btsnoop-extcap" ~/.config/wireshark/extcap/btsnoop-extcap
+
+# Run the symlink command in the error message
+$ mkdir -p ~/.config/wireshark/extcap/ && \
+  ln -s "~/.cargo/bin/btsnoop-extcap" ~/.config/wireshark/extcap/btsnoop-extcap
 ```
 
 Root is required on the selected Android device.

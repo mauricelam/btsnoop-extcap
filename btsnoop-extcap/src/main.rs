@@ -33,25 +33,28 @@ mod btsnoop_ext;
 mod extcap;
 mod util;
 
+/// An extcap plugin for Wireshark or tshark that captures the btsnoop HCI logs
+/// from an Android device connected over adb.
 #[derive(Debug, Parser)]
-#[command(author, version, about)]
+#[command(author, version, about, about = installation_instructions())]
 pub struct BtsnoopArgs {
     #[command(flatten)]
     extcap: extcap::ExtcapArgs,
 
-    /// Specify the path to the btsnoop log file on the device to stream from. For a special value
-    /// with the format `local:<path>`, the log file will be read locally on the host device
-    /// instead.
+    /// Specify the path to the btsnoop log file on the device to stream from.
+    /// For a special value with the format `local:<path>`, the log file will be
+    /// read locally on the host device instead.
     #[arg(long)]
     pub btsnoop_log_file_path: Option<String>,
 
-    /// Specify the path to the ADB executable, or "mock" for a special mock implementation used
-    /// for testing.
+    /// Specify the path to the ADB executable, or "mock" for a special mock
+    /// implementation used for testing.
     #[arg(long)]
     pub adb_path: Option<String>,
 
-    /// Delay in number of seconds before showing packets. Since btsnoop logs are stored on a file on
-    /// the Android device, this allows skipping old packets and only show new ones in the UI.
+    /// Delay in number of seconds before showing packets. Since btsnoop logs
+    /// are stored on a file on the Android device, this allows skipping old
+    /// packets and only show new ones in the UI.
     #[arg(long, value_parser = |arg: &str| arg.parse().map(std::time::Duration::from_secs), default_value = "1")]
     pub display_delay: Duration,
 }
@@ -247,19 +250,24 @@ async fn main() -> anyhow::Result<()> {
         );
         Ok(())
     } else {
-        let exe_path = std::env::current_exe()
+        Err(anyhow!("Error: extcap arguments not specified.\n{}", installation_instructions()))
+    }
+}
+
+/// Returns the installation instructions for this extcap program.
+fn installation_instructions() -> String {
+    let exe_path = std::env::current_exe()
             .map(|exe| {
                 let path = exe.to_string_lossy();
-                format!("\n  ln -s \"{path}\" ~/.config/wireshark/extcap/btsnoop-extcap")
+                format!("\n  mkdir -p ~/.config/wireshark/extcap/ && ln -s \"{path}\" ~/.config/wireshark/extcap/btsnoop-extcap")
             })
             .unwrap_or_default();
-        Err(anyhow!(
-            concat!(
-                "Unknown extcap phase. This is an extcap plugin meant to be used with Wireshark or tshark.",
-                "To install this plugin for use with Wireshark, symlink or copy this executable ",
-                "to your Wireshark extcap directory{}",
-            ),
-            exe_path
-        ))
-    }
+    format!(
+        concat!(
+            "This is an extcap plugin meant to be used with Wireshark or tshark.",
+            "To install this plugin for use with Wireshark, symlink or copy this executable ",
+            "to your Wireshark extcap directory{}",
+        ),
+        exe_path
+    )
 }
