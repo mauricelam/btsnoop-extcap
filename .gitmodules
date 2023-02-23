@@ -1,0 +1,3 @@
+[submodule "rust-typed-builder"]
+	path = rust-typed-builder
+	url = https://github.com/idanarye/rust-typed-builder.git

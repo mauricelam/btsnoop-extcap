@@ -1,19 +1,19 @@
 #![deny(unused_must_use)]
 
-use crate::{
-    adb::{AdbRootError, BtsnoopLogMode, BtsnoopLogSettings},
-    extcap::{ControlPacket, ExtcapControlSenderTrait},
-};
+use adb::{AdbRootError, BtsnoopLogMode, BtsnoopLogSettings};
 use anyhow::anyhow;
 use btsnoop::{FileHeader, PacketHeader};
 use btsnoop_ext::Direction;
 use clap::Parser;
-use extcap::{ControlCommand, ExtcapControlSender};
 use log::{debug, info, warn};
 use nom_derive::Parse as _;
 use pcap_file::{
     pcap::{PcapHeader, PcapPacket, PcapWriter},
     DataLink,
+};
+use rust_extcap::{
+    tokio::{ExtcapControlSender, ExtcapControlSenderTrait, util::AsyncReadExt as _, ExtcapControl},
+    ControlCommand, ControlPacket, ExtcapArgs,
 };
 use std::{
     borrow::Cow,
@@ -26,12 +26,9 @@ use tokio::{
     fs::File,
     io::{AsyncRead, AsyncReadExt},
 };
-use util::AsyncReadExt as _;
 
 mod adb;
 mod btsnoop_ext;
-mod extcap;
-mod util;
 
 /// An extcap plugin for Wireshark or tshark that captures the btsnoop HCI logs
 /// from an Android device connected over adb.
@@ -39,7 +36,7 @@ mod util;
 #[command(author, version, about, about = installation_instructions())]
 pub struct BtsnoopArgs {
     #[command(flatten)]
-    extcap: extcap::ExtcapArgs,
+    extcap: ExtcapArgs,
 
     /// Specify the path to the btsnoop log file on the device to stream from.
     /// For a special value with the format `local:<path>`, the log file will be
@@ -202,7 +199,7 @@ async fn main() -> anyhow::Result<()> {
             "Interface must start with \"btsnoop-\""
         );
         let serial = interface.split('-').nth(1).unwrap();
-        let extcap_control = extcap::ExtcapControl::new_option(
+        let extcap_control = ExtcapControl::new_option(
             args.extcap.extcap_control_in,
             args.extcap.extcap_control_out,
         );
@@ -250,7 +247,10 @@ async fn main() -> anyhow::Result<()> {
         );
         Ok(())
     } else {
-        Err(anyhow!("Error: extcap arguments not specified.\n{}", installation_instructions()))
+        Err(anyhow!(
+            "Error: extcap arguments not specified.\n{}",
+            installation_instructions()
+        ))
     }
 }
 
