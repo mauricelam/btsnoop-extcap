@@ -1,11 +1,11 @@
 use crate::{ControlCommand, ControlPacket};
 use anyhow::anyhow;
-use log::{debug, warn};
+use log::debug;
 use nom_derive::Parse;
 use std::{
     fs::File,
     io::{Read, Write},
-    path::Path,
+    path::{Path, PathBuf}, sync::mpsc, thread::JoinHandle,
 };
 
 pub mod util;
@@ -49,6 +49,35 @@ impl ExtcapControlReader {
     }
 }
 
+pub struct ThreadedExtcapControlReader {
+    pub join_handle: JoinHandle<()>,
+    pub read_channel: mpsc::Receiver<ControlPacket<'static>>,
+}
+
+impl ThreadedExtcapControlReader {
+    pub fn spawn(in_path: PathBuf) -> Self {
+        let (tx, rx) = mpsc::sync_channel::<ControlPacket<'static>>(1);
+        let join_handle = std::thread::spawn(move || {
+            let reader = ExtcapControlReader::new(&in_path);
+            loop {
+                tx.send(reader.read_control_packet().unwrap()).unwrap();
+            }
+        });
+        Self {
+            join_handle,
+            read_channel: rx,
+        }
+    }
+
+    pub fn try_read_packet(&self) -> Option<ControlPacket<'static>> {
+        self.read_channel.try_recv().ok()
+    }
+
+    pub fn read_packet(&self) -> ControlPacket<'static> {
+        self.read_channel.recv().unwrap()
+    }
+}
+
 /// Manager for the extcap control pipes. The control pipes are a pair of FIFOs, one incoming and
 /// one outgoing, and used to control extra functionalities, mostly UI-related, with Wireshark.
 ///
@@ -57,12 +86,12 @@ impl ExtcapControlReader {
 /// those control packets.
 ///
 /// See <https://www.wireshark.org/docs/wsdg_html_chunked/ChCaptureExtcap.html> for details.
-pub struct ExtcapControl {
+pub struct ExtcapControlSender {
     out_file: File,
 }
 
-impl ExtcapControl {
-    /// Creates a new instance of [`ExtcapControl`].
+impl ExtcapControlSender {
+    /// Creates a new instance of [`ExtcapControlSender`].
     pub fn new(out_path: &Path) -> Self {
         Self {
             out_file: File::create(out_path).unwrap(),
@@ -70,7 +99,7 @@ impl ExtcapControl {
     }
 }
 
-impl ExtcapControlSenderTrait for ExtcapControl {
+impl ExtcapControlSenderTrait for ExtcapControlSender {
     fn send(&mut self, packet: ControlPacket<'_>) {
         self.out_file.write_all(&packet.to_header_bytes()).unwrap();
         self.out_file.write_all(&packet.payload).unwrap();

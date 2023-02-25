@@ -1,61 +1,33 @@
 use crate::{ControlCommand, ControlPacket};
 use anyhow::anyhow;
 use async_trait::async_trait;
-use log::{debug, warn};
+use log::debug;
 use nom_derive::Parse;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use tokio::{
     fs::File,
-    io::{AsyncReadExt, AsyncWriteExt},
-    sync::mpsc,
+    io::{AsyncReadExt, AsyncWriteExt}, sync::Mutex,
 };
 
 pub mod util;
 use util::AsyncReadExt as _;
 
-/// Manager for the extcap control pipes. The control pipes are a pair of FIFOs, one incoming and
-/// one outgoing, and used to control extra functionalities, mostly UI-related, with Wireshark.
-///
-/// This class manages the serialization and deserialization of the control packets, and dispatches
-/// them onto Tokio channels, so that functions running on other tasks can subcribe to and emit
-/// those control packets.
-///
-/// See <https://www.wireshark.org/docs/wsdg_html_chunked/ChCaptureExtcap.html> for details.
-pub struct ExtcapControl {
-    in_path: PathBuf,
-    out_path: PathBuf,
-    in_tx: tokio::sync::broadcast::Sender<ControlPacket<'static>>,
-    out_tx: mpsc::Sender<ControlPacket<'static>>,
-    out_rx: mpsc::Receiver<ControlPacket<'static>>,
+pub struct ExtcapControlReader {
+    pub in_file: File,
 }
 
-impl ExtcapControl {
-    /// Subscribe to new incoming control packets.
-    pub fn subscribe(&self) -> tokio::sync::broadcast::Receiver<ControlPacket<'static>> {
-        self.in_tx.subscribe()
-    }
-
-    /// Monitors the given tokio channel for control packets, and forwards the
-    /// serialized bytes onto `out_file`.
-    async fn mon_output_pipe(
-        rx: &mut mpsc::Receiver<ControlPacket<'static>>,
-        mut out_file: File,
-    ) -> anyhow::Result<()> {
-        while let Some(packet) = rx.recv().await {
-            debug!("Got outgoing control packet: {packet:?}");
-            out_file.write_all(&packet.to_header_bytes()).await?;
-            out_file.write_all(&packet.payload).await?;
-            out_file.flush().await?;
-            debug!("Packet written and flushed");
+impl ExtcapControlReader {
+    /// Creates a new instance of [`ExtcapControlReader`].
+    pub async fn new(in_path: &Path) -> Self {
+        Self {
+            in_file: File::open(in_path).await.unwrap(),
         }
-        Ok(())
     }
 
     /// Read one control packet from the given input file.
-    async fn read_control_packet(in_file: &mut File) -> anyhow::Result<ControlPacket<'static>> {
-        let header_bytes = in_file
-            .try_read_exact::<6>()
-            .await?
+    pub async fn read_control_packet(&mut self) -> Result<ControlPacket<'static>, anyhow::Error> {
+        let header_bytes = self.in_file
+            .try_read_exact::<6>().await?
             .ok_or_else(|| std::io::Error::from(std::io::ErrorKind::UnexpectedEof))?;
         debug!(
             "Read header bytes from incoming control message, now parsing... {:?}",
@@ -65,7 +37,7 @@ impl ExtcapControl {
             Ok((rem, packet)) => (rem, packet.into_owned()),
             Err(nom::Err::Incomplete(nom::Needed::Size(size))) => {
                 let mut payload_bytes = vec![0_u8; size.get()];
-                in_file.read_exact(&mut payload_bytes).await?;
+                self.in_file.read_exact(&mut payload_bytes).await?;
                 let all_bytes = [header_bytes.as_slice(), payload_bytes.as_slice()].concat();
                 ControlPacket::parse(&all_bytes)
                     .map(|(_, packet)| (&[][..], packet.into_owned()))
@@ -76,142 +48,139 @@ impl ExtcapControl {
         debug!("Parsed incoming control message: {packet:?}");
         Ok(packet)
     }
-
-    /// Monitors the input pipe (`in_file`) for incoming control packets, parses
-    /// them into [`ControlPackets`][ControlPacket], forwards them to the given
-    /// tokio channel `tx`.
-    async fn mon_input_pipe(
-        tx: &tokio::sync::broadcast::Sender<ControlPacket<'static>>,
-        mut in_file: File,
-    ) -> anyhow::Result<()> {
-        loop {
-            let packet = Self::read_control_packet(&mut in_file).await?;
-            tx.send(packet).unwrap();
-        }
-    }
-
-    /// Creates a new instance of [`ExtcapControl`].
-    pub fn new(in_path: &Path, out_path: &Path) -> Self {
-        let (in_tx, _) = tokio::sync::broadcast::channel::<ControlPacket<'static>>(100);
-        let (out_tx, out_rx) = mpsc::channel::<ControlPacket<'static>>(100);
-        Self {
-            in_path: in_path.to_owned(),
-            out_path: out_path.to_owned(),
-            in_tx,
-            out_tx,
-            out_rx,
-        }
-    }
-
-    /// Optionally creates a new instance of [`ExtcapControl`], if both
-    /// `in_path` and `out_path` are present.
-    pub fn new_option(in_path: Option<PathBuf>, out_path: Option<PathBuf>) -> Option<Self> {
-        Some(Self::new(in_path?.as_path(), out_path?.as_path()))
-    }
-
-    /// Starts processing the control packets on both the input and output
-    /// pipes. Note that this method loops infinitely, and will not complete
-    /// unless an error has occurred or a signal is received. (`SIGTERM` is sent
-    /// by Wireshark when the capture stops).
-    pub async fn process(&mut self) -> anyhow::Result<()> {
-        let mut in_file = File::open(&self.in_path).await?;
-        let out_file = File::create(&self.out_path).await?;
-        let init_packet = Self::read_control_packet(&mut in_file).await?;
-        assert_eq!(init_packet.command, ControlCommand::Initialized);
-        tokio::try_join!(
-            Self::mon_input_pipe(&self.in_tx, in_file),
-            Self::mon_output_pipe(&mut self.out_rx, out_file),
-        )?;
-        Ok(())
-    }
-
-    /// Gets a control pipe that can send control messages to Wireshark.
-    pub fn get_control_pipe(&self) -> mpsc::Sender<ControlPacket<'static>> {
-        self.out_tx.clone()
-    }
 }
+
+const UNUSED_CONTROL_NUMBER: u8 = 255;
 
 /// Sender for extcap control packets. These control packets controls the UI generated by Wireshark.
 /// See <https://www.wireshark.org/docs/wsdg_html_chunked/ChCaptureExtcap.html> for details.
 #[async_trait]
-pub trait ExtcapControlSenderTrait {
-    const UNUSED_CONTROL_NUMBER: u8 = 255;
-
-    async fn send(&self, packet: ControlPacket<'static>);
+pub trait ExtcapControlSenderTrait: Send + Sync {
+    async fn send(&mut self, packet: ControlPacket<'_>) -> Result<(), tokio::io::Error>;
 
     /// Enable a button with the given control number.
-    async fn enable_button(&self, button: u8) {
-        self.send(ControlPacket::new(button, ControlCommand::Enable, &[]))
-            .await
+    async fn enable_button(&mut self, button: u8) -> Result<(), tokio::io::Error> {
+        self.send(ControlPacket::new(button, ControlCommand::Enable, &[])).await
     }
 
     /// Disable a button with the given control number.
-    async fn disable_button(&self, button: u8) {
-        self.send(ControlPacket::new(button, ControlCommand::Disable, &[]))
-            .await
+    async fn disable_button(&mut self, button: u8) -> Result<(), tokio::io::Error> {
+        self.send(ControlPacket::new(button, ControlCommand::Disable, &[])).await
     }
 
     /// Shows a message in an information dialog popup.
-    async fn info_message(&self, message: &'static str) {
+    async fn info_message(&mut self, message: &str) -> Result<(), tokio::io::Error> {
         self.send(ControlPacket::new(
-            Self::UNUSED_CONTROL_NUMBER,
+            UNUSED_CONTROL_NUMBER,
             ControlCommand::InformationMessage,
             message.as_bytes(),
-        ))
-        .await
+        )).await
     }
 
     /// Shows a message in a warning dialog popup.
-    async fn warning_message(&self, message: &'static str) {
+    async fn warning_message(&mut self, message: &str) -> Result<(), tokio::io::Error> {
         self.send(ControlPacket::new(
-            Self::UNUSED_CONTROL_NUMBER,
+            UNUSED_CONTROL_NUMBER,
             ControlCommand::WarningMessage,
             message.as_bytes(),
-        ))
-        .await
+        )).await
     }
 
     /// Shows a message in an error dialog popup.
-    async fn error_message(&self, message: &'static str) {
+    async fn error_message(&mut self, message: &str) -> Result<(), tokio::io::Error> {
         self.send(ControlPacket::new(
-            Self::UNUSED_CONTROL_NUMBER,
+            UNUSED_CONTROL_NUMBER,
             ControlCommand::ErrorMessage,
             message.as_bytes(),
-        ))
-        .await
+        )).await
     }
 
     /// Shows a message in the status bar
-    async fn status_message(&self, message: &'static str) {
+    async fn status_message(&mut self, message: &str) -> Result<(), tokio::io::Error> {
         self.send(ControlPacket::new(
-            Self::UNUSED_CONTROL_NUMBER,
+            UNUSED_CONTROL_NUMBER,
             ControlCommand::StatusbarMessage,
             message.as_bytes(),
-        ))
-        .await
+        )).await
+    }
+
+    /// Run the "set" operation
+    // TODO: Break this down to type-specific functions like Log.add()
+    async fn set_value(&mut self, control: u8, value: &str) -> Result<(), tokio::io::Error> {
+        self.set_value_bytes(control, value.as_bytes()).await
+    }
+
+    async fn set_value_bytes(&mut self, control: u8, value: &[u8]) -> Result<(), tokio::io::Error> {
+        self.send(ControlPacket::new(control, ControlCommand::Set, value)).await
+    }
+
+    async fn add_value(&mut self, control: u8, value: &str) -> Result<(), tokio::io::Error> {
+        self.send(ControlPacket::new(
+            control,
+            ControlCommand::Add,
+            value.as_bytes(),
+        )).await
+    }
+
+    async fn remove_value(&mut self, control: u8, value: &str) -> Result<(), tokio::io::Error> {
+        self.send(ControlPacket::new(
+            control,
+            ControlCommand::Remove,
+            value.as_bytes(),
+        )).await
     }
 }
 
-pub type ExtcapControlSender = mpsc::Sender<ControlPacket<'static>>;
-
-#[async_trait]
-impl ExtcapControlSenderTrait for mpsc::Sender<ControlPacket<'static>> {
-    /// Sends a control message to Wireshark.
-    async fn send(&self, packet: ControlPacket<'static>) {
-        debug!("Sending extcap control message: {packet:#?}");
-        self.send(packet)
-            .await
-            .unwrap_or_else(|e| warn!("Failed to send control packet. {e}"));
-    }
+pub struct ExtcapControlSender {
+    out_file: File,
 }
 
-// Convenience impl to allow `Option::None` to be a no-op sender.
-#[async_trait]
-impl<T: ExtcapControlSenderTrait + Sync> ExtcapControlSenderTrait for Option<T> {
-    /// Sends a control message to Wireshark.
-    async fn send(&self, packet: ControlPacket<'static>) {
-        if let Some(sender) = self {
-            sender.send(packet).await;
+impl ExtcapControlSender {
+    /// Creates a new instance of [`ExtcapControlSender`].
+    pub async fn new(out_path: &Path) -> Self {
+        Self {
+            out_file: File::create(out_path).await.unwrap(),
         }
+    }
+}
+
+#[async_trait]
+impl ExtcapControlSenderTrait for ExtcapControlSender {
+    /// Sends a control message to Wireshark.
+    async fn send(&mut self, packet: ControlPacket<'_>) -> Result<(), tokio::io::Error> {
+        debug!("Sending extcap control message: {packet:#?}");
+        self.out_file.write_all(&packet.to_header_bytes()).await?;
+        self.out_file.write_all(&packet.payload).await?;
+        self.out_file.flush().await?;
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl <T: ExtcapControlSenderTrait> ExtcapControlSenderTrait for Option<T> {
+    /// Sends a control message to Wireshark.
+    async fn send(&mut self, packet: ControlPacket<'_>) -> Result<(), tokio::io::Error> {
+        if let Some(s) = self {
+            s.send(packet).await
+        } else {
+            Ok(())
+        }
+    }
+}
+
+/// Just for syntactic niceness when working with a control sender behind a
+/// mutex. This usage allows the sender to be locked only for the duration of
+/// that one control packet, so it can be interleaved in between other async
+/// function calls.
+///
+/// Using this requires a somewhat strange `mut control:
+/// &Mutex<ExtcapControlSender>` or `control: &mut Mutex<ExtcapControlSender>`
+/// syntax, which is just an artifact of how the `ExtcapControlSenderTrait` is
+/// defined. The `Mutex` reference is not mutated in any way.
+#[async_trait]
+impl <T: ExtcapControlSenderTrait> ExtcapControlSenderTrait for &Mutex<T> {
+    /// Sends a control message to Wireshark.
+    async fn send(&mut self, packet: ControlPacket<'_>) -> Result<(), tokio::io::Error> {
+        self.lock().await.send(packet).await
     }
 }

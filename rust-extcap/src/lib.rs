@@ -8,19 +8,20 @@
 //! * <https://gitlab.com/wireshark/wireshark/-/blob/master/doc/extcap_example.py>
 
 use clap::Args;
+use config::{ConfigTrait, SelectorConfig};
+use controls::ToolbarControl;
+use interface::{Interface, Metadata};
 use nom::number::complete::be_u24;
 use nom_derive::Nom;
 use std::{borrow::Cow, path::PathBuf};
-
-pub mod dlt;
-
-#[cfg(feature = "tokio")]
-pub mod tokio;
+use thiserror::Error;
 
 pub mod config;
+pub mod dlt;
 pub mod interface;
 pub mod threaded;
-pub(crate) mod util;
+pub mod tokio;
+pub mod controls;
 
 /// The arguments defined by extcap. These arguments are usable as a clap
 /// parser.
@@ -187,6 +188,124 @@ pub struct ExtcapArgs {
     pub extcap_reload_option: Option<String>,
 }
 
+#[derive(Debug, Error)]
+pub enum ExtcapError {
+    #[error("Missing input extcap command")] // TODO: installation instructions
+    NotExtcapInput,
+    #[error(transparent)]
+    ListConfigError(#[from] ListConfigError),
+    #[error(transparent)]
+    ReloadConfigError(#[from] ReloadConfigError),
+    #[error(transparent)]
+    PrintDltError(#[from] PrintDltError),
+}
+
+impl ExtcapArgs {
+    pub fn run<App: ExtcapApplication>(&self, app: &App) -> Result<(), ExtcapError> {
+        if self.extcap_interfaces {
+            app.list_interfaces();
+            Ok(())
+        } else if let Some(interface) = &self.extcap_interface {
+            if self.extcap_config {
+                if let Some(reload_config) = &self.extcap_reload_option {
+                    app.reload_config(interface, reload_config)?;
+                } else {
+                    app.list_configs(interface)?;
+                }
+                Ok(())
+            } else if self.extcap_dlts {
+                app.print_dlt(interface)?;
+                Ok(())
+            } else {
+                Err(ExtcapError::NotExtcapInput)
+            }
+        } else {
+            Err(ExtcapError::NotExtcapInput)
+        }
+    }
+}
+
+#[derive(Debug, Error)]
+pub enum PrintDltError {
+    #[error("Cannot list DLT for unknown interface \"{0}\".")]
+    UnknownInterface(String),
+}
+
+#[derive(Debug, Error)]
+pub enum ReloadConfigError {
+    #[error("Cannot reload config options for unknown interface \"{0}\".")]
+    UnknownInterface(String),
+    #[error("Cannot reload options for unknown config \"{0}\".")]
+    UnknownConfig(String),
+    #[error("Cannot reload config options for \"{0}\", which is not of type \"selector\".")]
+    UnsupportedConfig(String),
+}
+
+#[derive(Debug, Error)]
+pub enum ListConfigError {
+    #[error("Cannot reload config options for unknown interface \"{0}\".")]
+    UnknownInterface(String),
+}
+
+pub trait ExtcapApplication {
+    fn metadata(&self) -> &Metadata;
+    fn interfaces(&self) -> &[Interface];
+    fn toolbar_controls(&self) -> Vec<&dyn ToolbarControl>;
+    fn configs(&self, interface: &Interface) -> Vec<&dyn ConfigTrait>;
+
+    fn list_interfaces(&self) {
+        self.metadata().print_config();
+        for interface in self.interfaces() {
+            interface.print_config();
+        }
+        for control in self.toolbar_controls() {
+            control.print_config();
+        }
+    }
+
+    fn list_configs(&self, interface: &str) -> Result<(), ListConfigError> {
+        let interface_obj = self
+            .interfaces()
+            .iter()
+            .find(|i| i.value.as_str() == interface)
+            .ok_or_else(|| ListConfigError::UnknownInterface(String::from(interface)))?;
+        for config in self.configs(interface_obj) {
+            config.print_config();
+        }
+        Ok(())
+    }
+
+    fn reload_config(&self, interface: &str, config: &str) -> Result<(), ReloadConfigError> {
+        let i = self
+            .interfaces()
+            .iter()
+            .find(|i| i.value == interface)
+            .ok_or_else(|| ReloadConfigError::UnknownInterface(String::from(interface)))?;
+        let selector_config = self
+            .configs(i)
+            .into_iter()
+            .find(|c| c.call() == config)
+            .ok_or_else(|| ReloadConfigError::UnknownConfig(String::from(config)))?
+            .as_any()
+            .downcast_ref::<SelectorConfig>()
+            .ok_or_else(|| ReloadConfigError::UnsupportedConfig(String::from(config)))?;
+        for opt in selector_config.reload.as_ref().unwrap()() {
+            opt.print_config(selector_config.config_number);
+        }
+        Ok(())
+    }
+
+    fn print_dlt(&self, interface: &str) -> Result<(), PrintDltError> {
+        self.interfaces()
+            .iter()
+            .find(|i| i.value == interface)
+            .ok_or_else(|| PrintDltError::UnknownInterface(String::from(interface)))?
+            .dlt
+            .print_config();
+        Ok(())
+    }
+}
+
 /// Control packets for the extcap interface. This is used for communication of
 /// control data between Wireshark and this extcap program.
 ///
@@ -239,15 +358,12 @@ impl<'a> ControlPacket<'a> {
     /// Turns the given ControlPacket into a ControlPacket with fully owned data
     /// and 'static lifetime.
     pub fn into_owned(self) -> ControlPacket<'static> {
-        match self.payload {
-            Cow::Borrowed(v) => ControlPacket {
-                payload: Cow::Owned(v.to_vec()),
-                ..self
+        ControlPacket {
+            payload: match self.payload {
+                Cow::Borrowed(v) => Cow::Owned(v.to_vec()),
+                Cow::Owned(v) => Cow::Owned(v),
             },
-            Cow::Owned(v) => ControlPacket {
-                payload: Cow::Owned(v),
-                ..self
-            },
+            ..self
         }
     }
 }
@@ -304,9 +420,10 @@ pub enum ControlCommand {
 
 #[cfg(test)]
 mod test {
+    use clap::Args;
     use nom_derive::Parse;
 
-    use super::ControlPacket;
+    use super::{ControlPacket, ExtcapArgs};
 
     #[test]
     fn test_to_bytes() {
@@ -319,5 +436,12 @@ mod test {
         let (rem, parsed_packet) = ControlPacket::parse(&full_bytes).unwrap();
         assert_eq!(packet, parsed_packet);
         assert!(rem.is_empty());
+    }
+
+    #[test]
+    fn assert_args() {
+        let cmd = clap::Command::new("test");
+        let augmented_cmd = ExtcapArgs::augment_args(cmd);
+        augmented_cmd.debug_assert();
     }
 }
