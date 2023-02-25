@@ -1,15 +1,18 @@
-use crate::{ControlCommand, ControlPacket};
 use anyhow::anyhow;
 use log::debug;
 use nom_derive::Parse;
 use std::{
     fs::File,
     io::{Read, Write},
-    path::{Path, PathBuf}, sync::mpsc, thread::JoinHandle,
+    path::{Path, PathBuf},
+    sync::mpsc,
+    thread::JoinHandle,
 };
 
 pub mod util;
 use util::ReadExt as _;
+
+use crate::controls::{ControlCommand, ControlPacket};
 
 pub struct ExtcapControlReader {
     pub in_file: File,
@@ -100,10 +103,11 @@ impl ExtcapControlSender {
 }
 
 impl ExtcapControlSenderTrait for ExtcapControlSender {
-    fn send(&mut self, packet: ControlPacket<'_>) {
-        self.out_file.write_all(&packet.to_header_bytes()).unwrap();
-        self.out_file.write_all(&packet.payload).unwrap();
+    fn send(&mut self, packet: ControlPacket<'_>) -> std::io::Result<()> {
+        self.out_file.write_all(&packet.to_header_bytes())?;
+        self.out_file.write_all(&packet.payload)?;
         self.out_file.flush().unwrap();
+        Ok(())
     }
 }
 
@@ -112,21 +116,11 @@ impl ExtcapControlSenderTrait for ExtcapControlSender {
 pub trait ExtcapControlSenderTrait {
     const UNUSED_CONTROL_NUMBER: u8 = 255;
 
-    fn send(&mut self, packet: ControlPacket<'_>);
-
-    /// Enable a button with the given control number.
-    fn enable_button(&mut self, button: u8) {
-        self.send(ControlPacket::new(button, ControlCommand::Enable, &[]))
-    }
-
-    /// Disable a button with the given control number.
-    fn disable_button(&mut self, button: u8) {
-        self.send(ControlPacket::new(button, ControlCommand::Disable, &[]))
-    }
+    fn send(&mut self, packet: ControlPacket<'_>) -> std::io::Result<()>;
 
     /// Shows a message in an information dialog popup.
-    fn info_message(&mut self, message: &str) {
-        self.send(ControlPacket::new(
+    fn info_message(&mut self, message: &str) -> std::io::Result<()> {
+        self.send(ControlPacket::new_with_payload(
             Self::UNUSED_CONTROL_NUMBER,
             ControlCommand::InformationMessage,
             message.as_bytes(),
@@ -134,8 +128,8 @@ pub trait ExtcapControlSenderTrait {
     }
 
     /// Shows a message in a warning dialog popup.
-    fn warning_message(&mut self, message: &str) {
-        self.send(ControlPacket::new(
+    fn warning_message(&mut self, message: &str) -> std::io::Result<()> {
+        self.send(ControlPacket::new_with_payload(
             Self::UNUSED_CONTROL_NUMBER,
             ControlCommand::WarningMessage,
             message.as_bytes(),
@@ -143,8 +137,8 @@ pub trait ExtcapControlSenderTrait {
     }
 
     /// Shows a message in an error dialog popup.
-    fn error_message(&mut self, message: &str) {
-        self.send(ControlPacket::new(
+    fn error_message(&mut self, message: &str) -> std::io::Result<()> {
+        self.send(ControlPacket::new_with_payload(
             Self::UNUSED_CONTROL_NUMBER,
             ControlCommand::ErrorMessage,
             message.as_bytes(),
@@ -152,37 +146,11 @@ pub trait ExtcapControlSenderTrait {
     }
 
     /// Shows a message in the status bar
-    fn status_message(&mut self, message: &str) {
-        self.send(ControlPacket::new(
+    fn status_message(&mut self, message: &str) -> std::io::Result<()> {
+        self.send(ControlPacket::new_with_payload(
             Self::UNUSED_CONTROL_NUMBER,
             ControlCommand::StatusbarMessage,
             message.as_bytes(),
-        ))
-    }
-
-    /// Run the "set" operation
-    // TODO: Break this down to type-specific functions like Log.add()
-    fn set_value(&mut self, control: u8, value: &str) {
-        self.set_value_bytes(control, value.as_bytes())
-    }
-
-    fn set_value_bytes(&mut self, control: u8, value: &[u8]) {
-        self.send(ControlPacket::new(control, ControlCommand::Set, value))
-    }
-
-    fn add_value(&mut self, control: u8, value: &str) {
-        self.send(ControlPacket::new(
-            control,
-            ControlCommand::Add,
-            value.as_bytes(),
-        ))
-    }
-
-    fn remove_value(&mut self, control: u8, value: &str) {
-        self.send(ControlPacket::new(
-            control,
-            ControlCommand::Remove,
-            value.as_bytes(),
         ))
     }
 }

@@ -7,11 +7,13 @@ use pcap_file::{
 };
 use rust_extcap::{
     config::*,
+    controls::synchronous::{
+        ExtcapControlSender, ExtcapControlSenderTrait, ThreadedExtcapControlReader,
+    },
     controls::*,
     dlt::Dlt,
     interface::{Interface, Metadata},
-    threaded::{ExtcapControlSender, ExtcapControlSenderTrait, ThreadedExtcapControlReader},
-    ControlCommand, ControlPacket, ExtcapApplication, ExtcapError,
+    ExtcapApplication, ExtcapError,
 };
 use std::{
     fmt::Display,
@@ -201,9 +203,9 @@ lazy_static! {
 
     static ref APPLICATION: ExampleExtcapApplication = ExampleExtcapApplication {
         metadata: rust_extcap::interface::Metadata {
-            version: String::from("1.0"),
-            help_url: String::from("http://www.wireshark.org"),
-            display_description: String::from("Rust Example extcap interface"),
+            help_url: "http://www.wireshark.org".into(),
+            display_description: "Rust Example extcap interface".into(),
+            ..Default::default()
         },
         interfaces: vec![
             rust_extcap::interface::Interface {
@@ -302,27 +304,35 @@ impl Display for Remote {
 }
 
 fn control_write_defaults(
-    extcap_control: &mut rust_extcap::threaded::ExtcapControlSender,
+    extcap_control: &mut ExtcapControlSender,
     message: &str,
     delay: u8,
     verify: bool,
-) {
+) -> anyhow::Result<()> {
     APPLICATION
         .control_message
-        .set_value(extcap_control, message);
+        .set_value(message)
+        .send(extcap_control)?;
     APPLICATION
         .control_button
-        .set_label(extcap_control, &delay.to_string());
+        .set_label(&delay.to_string())
+        .send(extcap_control)?;
     APPLICATION
         .control_verify
-        .set_checked(extcap_control, verify);
+        .set_checked(verify)
+        .send(extcap_control)?;
 
     for i in 1..16 {
         APPLICATION
             .control_delay
-            .add_value(extcap_control, &i.to_string(), &format!("{i} sec"));
+            .add_value(&i.to_string(), &format!("{i} sec"))
+            .send(extcap_control)?;
     }
-    APPLICATION.control_delay.remove_value(extcap_control, "60");
+    APPLICATION
+        .control_delay
+        .remove_value("60")
+        .send(extcap_control)?;
+    Ok(())
 }
 
 #[derive(Debug, Parser)]
@@ -460,7 +470,7 @@ fn main() -> anyhow::Result<()> {
                 args.message,
                 args.remote,
                 args.fake_ip,
-            );
+            )?;
         } else {
             Exit::ErrorInterface.exit();
         }
@@ -480,7 +490,7 @@ pub struct CaptureState {
 
 fn handle_control_packet(
     control_packet: &ControlPacket<'_>,
-    extcap_control_out: &mut ExtcapControlSender,
+    control_sender: &mut ExtcapControlSender,
     app_state: &mut CaptureState,
 ) -> anyhow::Result<()> {
     debug!("Read control packet: {control_packet:?}");
@@ -502,24 +512,27 @@ fn handle_control_packet(
                 if app_state.initialized {
                     app_state.verify = control_packet.payload[0] != 0_u8;
                     log = Some(format!("Verify = {:?}", app_state.verify));
-                    extcap_control_out.status_message("Verify changed");
+                    control_sender.status_message("Verify changed")?;
                 }
             } else if control_packet.control_number == APPLICATION.control_button.control_number {
                 APPLICATION
                     .control_button
-                    .set_enabled(extcap_control_out, false);
+                    .set_enabled(false)
+                    .send(control_sender)?;
                 debug!("Got button control event. button={}", app_state.button);
                 app_state.button_disabled = true;
                 if app_state.button {
                     APPLICATION
                         .control_button
-                        .set_label(extcap_control_out, "Turn on");
+                        .set_label("Turn on")
+                        .send(control_sender)?;
                     app_state.button = false;
                     log = Some(String::from("Button turned off"));
                 } else {
                     APPLICATION
                         .control_button
-                        .set_label(extcap_control_out, "Turn off");
+                        .set_label("Turn off")
+                        .send(control_sender)?;
                     app_state.button = true;
                     log = Some(String::from("Button turned on"));
                 }
@@ -535,7 +548,8 @@ fn handle_control_packet(
     if let Some(log) = log {
         APPLICATION
             .control_logger
-            .add_log_entry(extcap_control_out, &format!("{}\n", log));
+            .add_log(&format!("{}\n", log))
+            .send(control_sender)?;
     }
     debug!("Read control packet Loop end");
     Ok(())
@@ -552,7 +566,7 @@ fn extcap_capture(
     message: String,
     remote: Remote,
     fake_ip: String,
-) {
+) -> anyhow::Result<()> {
     let mut app_state = CaptureState {
         initialized: false,
         message,
@@ -578,16 +592,16 @@ a qui officia deserunt mollit anim id est laborum.";
         let packet = in_pipe.read_packet();
         assert_eq!(packet.command, ControlCommand::Initialized);
 
-        APPLICATION.control_logger.set_log_entry(
-            out_pipe,
-            &format!("Log started at {:?}\n", SystemTime::now()),
-        );
+        APPLICATION
+            .control_logger
+            .clear_and_add_log(&format!("Log started at {:?}\n", SystemTime::now()))
+            .send(out_pipe)?;
         control_write_defaults(
             out_pipe,
             &app_state.message,
             app_state.delay,
             app_state.verify,
-        );
+        )?;
     }
 
     let fh = File::create(fifo).unwrap();
@@ -601,16 +615,17 @@ a qui officia deserunt mollit anim id est laborum.";
     let data_total = DATA.len() / 20 + 1;
 
     for i in 0..usize::MAX {
-        if let (Some(in_pipe), Some(out_pipe)) =
+        if let (Some(in_pipe), Some(control_sender)) =
             (extcap_control_in.as_mut(), extcap_control_out.as_mut())
         {
             if let Some(control_packet) = in_pipe.try_read_packet() {
-                handle_control_packet(&control_packet, out_pipe, &mut app_state).unwrap();
+                handle_control_packet(&control_packet, control_sender, &mut app_state).unwrap();
             }
 
             APPLICATION
                 .control_logger
-                .add_log_entry(out_pipe, &format!("Received packet #{counter}\n"));
+                .add_log(&format!("Received packet #{counter}\n"))
+                .send(control_sender)?;
             counter += 1;
 
             debug!(
@@ -619,8 +634,11 @@ a qui officia deserunt mollit anim id est laborum.";
             );
 
             if app_state.button_disabled {
-                APPLICATION.control_button.set_enabled(out_pipe, true);
-                out_pipe.info_message("Turn action finished.");
+                APPLICATION
+                    .control_button
+                    .set_enabled(true)
+                    .send(control_sender)?;
+                control_sender.info_message("Turn action finished.")?;
                 app_state.button_disabled = false;
             }
         }
@@ -640,16 +658,15 @@ a qui officia deserunt mollit anim id est laborum.";
         );
         let packet = pcap_fake_packet(&out, &fake_ip, i);
 
-        pcap_writer
-            .write_packet(&PcapPacket::new(
-                SystemTime::now().duration_since(UNIX_EPOCH).unwrap(),
-                (packet.len() + 14 + 20) as u32,
-                &packet,
-            ))
-            .unwrap();
-        stdout().flush().unwrap();
+        pcap_writer.write_packet(&PcapPacket::new(
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap(),
+            (packet.len() + 14 + 20) as u32,
+            &packet,
+        ))?;
+        stdout().flush()?;
         std::thread::sleep(Duration::from_secs(app_state.delay.into()));
     }
+    Ok(())
 }
 
 fn create_out_packet(

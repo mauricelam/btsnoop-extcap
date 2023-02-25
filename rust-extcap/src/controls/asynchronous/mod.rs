@@ -1,4 +1,3 @@
-use crate::{ControlCommand, ControlPacket};
 use anyhow::anyhow;
 use async_trait::async_trait;
 use log::debug;
@@ -6,11 +5,14 @@ use nom_derive::Parse;
 use std::path::Path;
 use tokio::{
     fs::File,
-    io::{AsyncReadExt, AsyncWriteExt}, sync::Mutex,
+    io::{AsyncReadExt, AsyncWriteExt},
+    sync::Mutex,
 };
 
 pub mod util;
 use util::AsyncReadExt as _;
+
+use crate::controls::{ControlCommand, ControlPacket};
 
 pub struct ExtcapControlReader {
     pub in_file: File,
@@ -26,8 +28,10 @@ impl ExtcapControlReader {
 
     /// Read one control packet from the given input file.
     pub async fn read_control_packet(&mut self) -> Result<ControlPacket<'static>, anyhow::Error> {
-        let header_bytes = self.in_file
-            .try_read_exact::<6>().await?
+        let header_bytes = self
+            .in_file
+            .try_read_exact::<6>()
+            .await?
             .ok_or_else(|| std::io::Error::from(std::io::ErrorKind::UnexpectedEof))?;
         debug!(
             "Read header bytes from incoming control message, now parsing... {:?}",
@@ -58,76 +62,44 @@ const UNUSED_CONTROL_NUMBER: u8 = 255;
 pub trait ExtcapControlSenderTrait: Send + Sync {
     async fn send(&mut self, packet: ControlPacket<'_>) -> Result<(), tokio::io::Error>;
 
-    /// Enable a button with the given control number.
-    async fn enable_button(&mut self, button: u8) -> Result<(), tokio::io::Error> {
-        self.send(ControlPacket::new(button, ControlCommand::Enable, &[])).await
-    }
-
-    /// Disable a button with the given control number.
-    async fn disable_button(&mut self, button: u8) -> Result<(), tokio::io::Error> {
-        self.send(ControlPacket::new(button, ControlCommand::Disable, &[])).await
-    }
-
     /// Shows a message in an information dialog popup.
     async fn info_message(&mut self, message: &str) -> Result<(), tokio::io::Error> {
-        self.send(ControlPacket::new(
+        self.send(ControlPacket::new_with_payload(
             UNUSED_CONTROL_NUMBER,
             ControlCommand::InformationMessage,
             message.as_bytes(),
-        )).await
+        ))
+        .await
     }
 
     /// Shows a message in a warning dialog popup.
     async fn warning_message(&mut self, message: &str) -> Result<(), tokio::io::Error> {
-        self.send(ControlPacket::new(
+        self.send(ControlPacket::new_with_payload(
             UNUSED_CONTROL_NUMBER,
             ControlCommand::WarningMessage,
             message.as_bytes(),
-        )).await
+        ))
+        .await
     }
 
     /// Shows a message in an error dialog popup.
     async fn error_message(&mut self, message: &str) -> Result<(), tokio::io::Error> {
-        self.send(ControlPacket::new(
+        self.send(ControlPacket::new_with_payload(
             UNUSED_CONTROL_NUMBER,
             ControlCommand::ErrorMessage,
             message.as_bytes(),
-        )).await
+        ))
+        .await
     }
 
     /// Shows a message in the status bar
     async fn status_message(&mut self, message: &str) -> Result<(), tokio::io::Error> {
-        self.send(ControlPacket::new(
+        self.send(ControlPacket::new_with_payload(
             UNUSED_CONTROL_NUMBER,
             ControlCommand::StatusbarMessage,
             message.as_bytes(),
-        )).await
-    }
-
-    /// Run the "set" operation
-    // TODO: Break this down to type-specific functions like Log.add()
-    async fn set_value(&mut self, control: u8, value: &str) -> Result<(), tokio::io::Error> {
-        self.set_value_bytes(control, value.as_bytes()).await
-    }
-
-    async fn set_value_bytes(&mut self, control: u8, value: &[u8]) -> Result<(), tokio::io::Error> {
-        self.send(ControlPacket::new(control, ControlCommand::Set, value)).await
-    }
-
-    async fn add_value(&mut self, control: u8, value: &str) -> Result<(), tokio::io::Error> {
-        self.send(ControlPacket::new(
-            control,
-            ControlCommand::Add,
-            value.as_bytes(),
-        )).await
-    }
-
-    async fn remove_value(&mut self, control: u8, value: &str) -> Result<(), tokio::io::Error> {
-        self.send(ControlPacket::new(
-            control,
-            ControlCommand::Remove,
-            value.as_bytes(),
-        )).await
+        ))
+        .await
     }
 }
 
@@ -157,7 +129,7 @@ impl ExtcapControlSenderTrait for ExtcapControlSender {
 }
 
 #[async_trait]
-impl <T: ExtcapControlSenderTrait> ExtcapControlSenderTrait for Option<T> {
+impl<T: ExtcapControlSenderTrait> ExtcapControlSenderTrait for Option<T> {
     /// Sends a control message to Wireshark.
     async fn send(&mut self, packet: ControlPacket<'_>) -> Result<(), tokio::io::Error> {
         if let Some(s) = self {
@@ -178,7 +150,7 @@ impl <T: ExtcapControlSenderTrait> ExtcapControlSenderTrait for Option<T> {
 /// syntax, which is just an artifact of how the `ExtcapControlSenderTrait` is
 /// defined. The `Mutex` reference is not mutated in any way.
 #[async_trait]
-impl <T: ExtcapControlSenderTrait> ExtcapControlSenderTrait for &Mutex<T> {
+impl<T: ExtcapControlSenderTrait> ExtcapControlSenderTrait for &Mutex<T> {
     /// Sends a control message to Wireshark.
     async fn send(&mut self, packet: ControlPacket<'_>) -> Result<(), tokio::io::Error> {
         self.lock().await.send(packet).await

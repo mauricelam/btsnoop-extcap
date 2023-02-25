@@ -17,7 +17,7 @@ fn interfaces() {
     cmd.assert()
         .success()
         .stdout(predicate::str::contains(concat!(
-            "extcap {version=1.0}{help=http://www.wireshark.org}{display=Rust Example extcap interface}\n",
+            "extcap {version=0.1.0}{help=http://www.wireshark.org}{display=Rust Example extcap interface}\n",
             "interface {value=rs-example1}{display=Rust Example interface 1 for extcap}\n",
             "interface {value=rs-example2}{display=Rust Example interface 2 for extcap}\n",
             "control {number=0}{type=string}{display=Message}{tooltip=Package message content. Must start with a capital letter.}{placeholder=Enter package message content here ...}{validation=^[A-Z]+}\n",
