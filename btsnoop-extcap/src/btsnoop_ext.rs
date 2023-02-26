@@ -34,7 +34,9 @@ impl Direction {
                 }
             }
             HCI_PACKET_TYPE_EVENT => Direction::Received,
-            HCI_PACKET_TYPE_EXTENDED_COMMAND => Err(anyhow!("Extended Command (0x09) not supported"))?,
+            HCI_PACKET_TYPE_EXTENDED_COMMAND => {
+                Err(anyhow!("Extended Command (0x09) not supported"))?
+            }
             _ => Err(anyhow!("Unknown payload header {}", payload[0]))?,
         })
     }

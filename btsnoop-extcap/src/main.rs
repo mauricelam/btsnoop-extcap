@@ -12,8 +12,11 @@ use pcap_file::{
     DataLink,
 };
 use rust_extcap::{
-    tokio::{ExtcapControlSender, ExtcapControlSenderTrait, util::AsyncReadExt as _, ExtcapControl},
-    ControlCommand, ControlPacket, ExtcapArgs,
+    controls::asynchronous::{
+        util::AsyncReadExt as _, ExtcapControlReader, ExtcapControlSender, ExtcapControlSenderTrait,
+    },
+    controls::{ControlCommand, ControlPacket},
+    ExtcapArgs,
 };
 use std::{
     borrow::Cow,
@@ -25,6 +28,7 @@ use std::{
 use tokio::{
     fs::File,
     io::{AsyncRead, AsyncReadExt},
+    sync::Mutex,
 };
 
 mod adb;
@@ -102,21 +106,41 @@ const BUTTON_TURN_OFF_BTSNOOP: u8 = 1;
 async fn handle_control_packet(
     serial: String,
     control_packet: ControlPacket<'_>,
-    extcap_control: Option<ExtcapControlSender>,
+    extcap_control: &mut Option<ExtcapControlSender>,
 ) -> anyhow::Result<()> {
     if control_packet.command == ControlCommand::Set {
         match control_packet.control_number {
             BUTTON_TURN_ON_BTSNOOP => {
                 // Turn on
                 BtsnoopLogSettings::set_mode(&serial, BtsnoopLogMode::Full).await?;
-                extcap_control.disable_button(BUTTON_TURN_ON_BTSNOOP).await;
-                extcap_control.enable_button(BUTTON_TURN_OFF_BTSNOOP).await;
+                extcap_control
+                    .send(ControlPacket::new(
+                        BUTTON_TURN_ON_BTSNOOP,
+                        ControlCommand::Disable,
+                    ))
+                    .await?;
+                extcap_control
+                    .send(ControlPacket::new(
+                        BUTTON_TURN_OFF_BTSNOOP,
+                        ControlCommand::Enable,
+                    ))
+                    .await?;
             }
             BUTTON_TURN_OFF_BTSNOOP => {
                 // Turn off
                 BtsnoopLogSettings::set_mode(&serial, BtsnoopLogMode::Disabled).await?;
-                extcap_control.disable_button(BUTTON_TURN_OFF_BTSNOOP).await;
-                extcap_control.enable_button(BUTTON_TURN_ON_BTSNOOP).await;
+                extcap_control
+                    .send(ControlPacket::new(
+                        BUTTON_TURN_OFF_BTSNOOP,
+                        ControlCommand::Disable,
+                    ))
+                    .await?;
+                extcap_control
+                    .send(ControlPacket::new(
+                        BUTTON_TURN_ON_BTSNOOP,
+                        ControlCommand::Enable,
+                    ))
+                    .await?;
             }
             control_number => panic!("Unknown control number {control_number}"),
         }
@@ -126,7 +150,7 @@ async fn handle_control_packet(
 
 async fn print_packets(
     serial: &str,
-    extcap_control: Option<ExtcapControlSender>,
+    mut extcap_control: &Mutex<Option<ExtcapControlSender>>,
     output_fifo: &Path,
     btsnoop_log_file_path: &Option<String>,
     display_delay: Duration,
@@ -140,7 +164,7 @@ async fn print_packets(
     } else {
         match adb::root(serial).await {
             Err(e @ AdbRootError::RootDeclined) => {
-                extcap_control.info_message("Unable to run `adb root`. Make sure your device is on a userdebug or eng build").await;
+                extcap_control.info_message("Unable to run `adb root`. Make sure your device is on a userdebug or eng build").await?;
                 tokio::time::sleep(Duration::from_secs(1)).await;
                 Err(e)?
             }
@@ -148,12 +172,32 @@ async fn print_packets(
             Ok(_) => (),
         }
         if BtsnoopLogSettings::mode(serial).await? == BtsnoopLogMode::Full {
-            extcap_control.disable_button(0).await;
-            extcap_control.enable_button(1).await;
+            extcap_control
+                .send(ControlPacket::new(
+                    BUTTON_TURN_ON_BTSNOOP,
+                    ControlCommand::Disable,
+                ))
+                .await?;
+            extcap_control
+                .send(ControlPacket::new(
+                    BUTTON_TURN_OFF_BTSNOOP,
+                    ControlCommand::Enable,
+                ))
+                .await?;
         } else {
-            extcap_control.disable_button(1).await;
-            extcap_control.enable_button(0).await;
-            extcap_control.status_message("BTsnoop logging is turned off. Use View > Interface Toolbars to show the buttons to turn it on").await;
+            extcap_control
+                .send(ControlPacket::new(
+                    BUTTON_TURN_OFF_BTSNOOP,
+                    ControlCommand::Disable,
+                ))
+                .await?;
+            extcap_control
+                .send(ControlPacket::new(
+                    BUTTON_TURN_ON_BTSNOOP,
+                    ControlCommand::Enable,
+                ))
+                .await?;
+            extcap_control.status_message("BTsnoop logging is turned off. Use View > Interface Toolbars to show the buttons to turn it on").await?;
         }
         let mut cmd = adb::shell(
             serial,
@@ -167,7 +211,7 @@ async fn print_packets(
     };
     extcap_control
         .status_message("BT capture connection closed")
-        .await;
+        .await?;
     // Wireshark overwrites the status bar when we exit, so wait a few seconds
     // so the user at least has a chance to read the message and know why it's
     // flashing.
@@ -199,27 +243,27 @@ async fn main() -> anyhow::Result<()> {
             "Interface must start with \"btsnoop-\""
         );
         let serial = interface.split('-').nth(1).unwrap();
-        let extcap_control = ExtcapControl::new_option(
-            args.extcap.extcap_control_in,
-            args.extcap.extcap_control_out,
-        );
-        let control_pipe = extcap_control
-            .as_ref()
-            .map(|control| control.get_control_pipe());
-        let control_in_pipe = extcap_control.as_ref().map(|r| r.subscribe());
+        let extcap_reader = if let Some(path) = args.extcap.extcap_control_in {
+            Some(ExtcapControlReader::new(&path).await)
+        } else {
+            None
+        };
+        let extcap_sender: Mutex<Option<ExtcapControlSender>> =
+            if let Some(path) = args.extcap.extcap_control_out {
+                Mutex::new(Some(ExtcapControlSender::new(&path).await))
+            } else {
+                Mutex::new(None)
+            };
         let result = tokio::try_join!(
             async {
-                if let Some(mut control) = extcap_control {
-                    control.process().await?;
-                }
-                debug!("Extcap control ending");
-                Ok(())
-            },
-            async {
-                if let Some(mut pipe) = control_in_pipe {
-                    while let Ok(packet) = pipe.recv().await {
-                        handle_control_packet(serial.to_string(), packet, control_pipe.clone())
-                            .await?;
+                if let Some(mut reader) = extcap_reader {
+                    while let Ok(packet) = reader.read_control_packet().await {
+                        handle_control_packet(
+                            serial.to_string(),
+                            packet,
+                            &mut *extcap_sender.lock().await,
+                        )
+                        .await?;
                     }
                 }
                 debug!("Control packet handling ending");
@@ -227,7 +271,7 @@ async fn main() -> anyhow::Result<()> {
             },
             print_packets(
                 serial,
-                control_pipe.clone(),
+                &extcap_sender,
                 &fifo,
                 &args.btsnoop_log_file_path,
                 args.display_delay

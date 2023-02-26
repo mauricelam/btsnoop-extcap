@@ -18,10 +18,10 @@
 //! }
 //! ```
 
-use std::time::Duration;
 use nom_derive::{Nom, Parse};
 use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
+use std::time::Duration;
 use thiserror::Error;
 
 /// Represents the entire btsnoop file. This includes one fixed-size file header followed

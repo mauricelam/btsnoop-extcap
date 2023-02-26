@@ -8,7 +8,7 @@ use pcap_file::{
 use rust_extcap::{
     config::*,
     controls::synchronous::{
-        ExtcapControlSender, ExtcapControlSenderTrait, ThreadedExtcapControlReader,
+        ExtcapControlSender, ExtcapControlSenderTrait, ChannelExtcapControlReader,
     },
     controls::*,
     dlt::Dlt,
@@ -584,12 +584,12 @@ aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugi 
 at nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culp \
 a qui officia deserunt mollit anim id est laborum.";
 
-    let mut extcap_control_in = extcap_control_in.map(ThreadedExtcapControlReader::spawn);
+    let mut extcap_control_in = extcap_control_in.map(ChannelExtcapControlReader::spawn);
     let mut extcap_control_out = extcap_control_out.map(|p| ExtcapControlSender::new(&p));
     if let (Some(in_pipe), Some(out_pipe)) =
         (extcap_control_in.as_mut(), extcap_control_out.as_mut())
     {
-        let packet = in_pipe.read_packet();
+        let packet = in_pipe.read_packet()?;
         assert_eq!(packet.command, ControlCommand::Initialized);
 
         APPLICATION

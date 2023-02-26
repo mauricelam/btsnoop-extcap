@@ -1,6 +1,7 @@
 use anyhow::anyhow;
 use log::debug;
 use nom_derive::Parse;
+use thiserror::Error;
 use std::{
     fs::File,
     io::{Read, Write},
@@ -14,6 +15,14 @@ use util::ReadExt as _;
 
 use crate::controls::{ControlCommand, ControlPacket};
 
+#[derive(Debug, Error)]
+pub enum ReadControlError {
+    #[error(transparent)]
+    IoError(#[from] std::io::Error),
+    #[error("Error parsing control packet: {0}")]
+    ParseError(String),
+}
+
 pub struct ExtcapControlReader {
     pub in_file: File,
 }
@@ -26,7 +35,7 @@ impl ExtcapControlReader {
         }
     }
 
-    pub fn read_control_packet(&self) -> Result<ControlPacket<'static>, anyhow::Error> {
+    pub fn read_control_packet(&self) -> Result<ControlPacket<'static>, ReadControlError> {
         let mut in_file = &self.in_file;
         let header_bytes = in_file
             .try_read_exact::<6>()?
@@ -45,25 +54,57 @@ impl ExtcapControlReader {
                     .map(|(_, packet)| (&[][..], packet.into_owned()))
                     .unwrap_or_else(|e| panic!("Unable to parse header packet: {e}"))
             }
-            Err(e) => Err(anyhow!("Error parsing control packet: {e}"))?,
+            Err(e) => Err(ReadControlError::ParseError(e.to_string()))?,
         };
         debug!("Parsed incoming control message: {packet:?}");
         Ok(packet)
     }
 }
 
-pub struct ThreadedExtcapControlReader {
-    pub join_handle: JoinHandle<()>,
+/// A reader for an Extcap Control using a [`Channel`][mpsc::channel]. This is
+/// the easier to use, but higher overhead way to read control packets. When the
+/// reader is spawned, a thread is spawned to continuously read messages and
+/// writes them into a bounded `sync_channel`. This allows the user to read the
+/// control messages without worrying about threading, by calling
+/// [`try_read_packet`][Self::try_read_packet] every once in a while.
+///
+/// Assuming the extcap `capture` implementation uses a loop to read or generate
+/// the packets, it can repeatedly call `try_read_packet` to read and handle the
+/// control packets until there are no more buffered messages before starting
+/// the main capturing logic.
+///
+/// For example:
+/// ```ignore
+/// fn capture(reader: &ChannelExtcapControlReader) -> Result<()> {
+///     let pcap_header = ...;
+///     let mut pcap_writer = PcapWriter::with_header(fifo, pcap_header)?;
+///     loop {
+///         while let Some(packet) = reader.try_read_packet() {
+///             // Handle the control packet
+///         }
+///         pcap_writer.write_packet(...)?;
+///     }
+///     Ok(())
+/// }
+pub struct ChannelExtcapControlReader {
+    /// The join handle for the spawned thread. In most cases there is no need
+    /// to use this, as the control fifo is expected to run for the whole
+    /// duration of the capture.
+    pub join_handle: JoinHandle<anyhow::Result<()>>,
+    /// The channel to receive control packets from.
     pub read_channel: mpsc::Receiver<ControlPacket<'static>>,
 }
 
-impl ThreadedExtcapControlReader {
+impl ChannelExtcapControlReader {
+    /// Create a `ChannelExtcapControlReader` and spawns the underlying thread
+    /// it uses to start reading the control packets from the pipe given in
+    /// `in_path`.
     pub fn spawn(in_path: PathBuf) -> Self {
-        let (tx, rx) = mpsc::sync_channel::<ControlPacket<'static>>(1);
+        let (tx, rx) = mpsc::sync_channel::<ControlPacket<'static>>(10);
         let join_handle = std::thread::spawn(move || {
             let reader = ExtcapControlReader::new(&in_path);
             loop {
-                tx.send(reader.read_control_packet().unwrap()).unwrap();
+                tx.send(reader.read_control_packet()?)?;
             }
         });
         Self {
@@ -72,12 +113,22 @@ impl ThreadedExtcapControlReader {
         }
     }
 
+    /// Try to read a buffered control packet, or return `None` if there are no
+    /// incoming control packets.
     pub fn try_read_packet(&self) -> Option<ControlPacket<'static>> {
         self.read_channel.try_recv().ok()
     }
 
-    pub fn read_packet(&self) -> ControlPacket<'static> {
-        self.read_channel.recv().unwrap()
+    /// Reads a control packet. If the incoming channel is empty, this will
+    /// block and wait until an incoming packet comes in. This is typically used
+    /// when the extcap capture starts to wait for the `Initialized` packet from
+    /// the control channel.
+    ///
+    /// If you are only using this method and not using `try_read_packet`,
+    /// consider whether you can use [`ExtcapControlReader`] directly for lower
+    /// overhead.
+    pub fn read_packet(&self) -> Result<ControlPacket<'static>, mpsc::RecvError> {
+        self.read_channel.recv()
     }
 }
 
