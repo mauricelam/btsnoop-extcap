@@ -150,7 +150,7 @@ async fn handle_control_packet(
 
 async fn print_packets(
     serial: &str,
-    mut extcap_control: &Mutex<Option<ExtcapControlSender>>,
+    extcap_control: &Mutex<Option<ExtcapControlSender>>,
     output_fifo: &Path,
     btsnoop_log_file_path: &Option<String>,
     display_delay: Duration,

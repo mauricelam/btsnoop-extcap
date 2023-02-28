@@ -8,7 +8,7 @@ use pcap_file::{
 use rust_extcap::{
     config::*,
     controls::synchronous::{
-        ExtcapControlSender, ExtcapControlSenderTrait, ChannelExtcapControlReader,
+        ChannelExtcapControlReader, ExtcapControlSender, ExtcapControlSenderTrait,
     },
     controls::*,
     dlt::Dlt,
@@ -738,4 +738,12 @@ fn validate_capture_filter(filter: &str) {
 }
 
 #[cfg(test)]
-mod test;
+mod test {
+    use clap::CommandFactory;
+    use super::AppArgs;
+
+    #[test]
+    fn test_parse() {
+        AppArgs::command().debug_assert();
+    }
+}

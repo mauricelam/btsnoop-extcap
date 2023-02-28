@@ -1,14 +1,6 @@
 use assert_cmd::prelude::*;
-use clap::CommandFactory;
 use predicates::prelude::*;
 use std::process::Command;
-
-use crate::AppArgs;
-
-#[test]
-fn test_parse() {
-    AppArgs::command().debug_assert();
-}
 
 #[test]
 fn interfaces() {

@@ -152,12 +152,12 @@ pub struct ExtcapArgs {
     pub extcap_capture_filter: Option<String>,
 
     /// Used to get control messages from toolbar. Control messages are in the
-    /// format documented in [`ControlPacket`].
+    /// format documented in [`ControlPacket`][controls::ControlPacket].
     #[arg(long, requires = "capture")]
     pub extcap_control_in: Option<PathBuf>,
 
     /// Used to send control messages to toolbar. Control messages are in the
-    /// format documented in [`ControlPacket`].
+    /// format documented in [`ControlPacket`][controls::ControlPacket].
     #[arg(long, requires = "capture")]
     pub extcap_control_out: Option<PathBuf>,
 

@@ -3,4 +3,5 @@ members = [
     "btsnoop",
     "btsnoop-extcap",
     "rust-extcap",
+    "rust-extcap/extcap-example",
 ]

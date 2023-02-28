@@ -1,64 +1,44 @@
-use anyhow::anyhow;
+//! Tools for handling the Control Pipe sycnhrnously. See Wireshark's [Adding
+//! Capture Interfaces And Log Sources Using
+//! Extcap](https://www.wireshark.org/docs/wsdg_html_chunked/ChCaptureExtcap.html#_messages)
+//! section 8.2.3.2.1 for a description of the protocol format.
+//!
+//! There are three main classes provided in this module:
+//!
+//! * [`ExtcapControlSender`] – Implements the sender side for sending control
+//!   packets from the extcap program you are implementing to Wireshark.
+//! * [`ExtcapControlReader`] – Implements the reader side that receives control
+//!   packets sent from Wireshark.
+//! * [`ChannelExtcapControlReader`] – A wrapper around `ExtcapControlReader`
+//!   that provides simpler, but less flexible, handling of the communication
+//!   using a mspc channel.
+
 use log::debug;
 use nom_derive::Parse;
-use thiserror::Error;
 use std::{
     fs::File,
     io::{Read, Write},
     path::{Path, PathBuf},
-    sync::mpsc,
+    sync::{mpsc, Mutex},
     thread::JoinHandle,
 };
+use thiserror::Error;
 
 pub mod util;
 use util::ReadExt as _;
 
 use crate::controls::{ControlCommand, ControlPacket};
 
+/// Error type returned for control packet read operations.
 #[derive(Debug, Error)]
 pub enum ReadControlError {
+    /// Error reading the incoming control pipe.
     #[error(transparent)]
     IoError(#[from] std::io::Error),
+
+    /// Error parsing the incoming data into the [`ControlPacket`] format.
     #[error("Error parsing control packet: {0}")]
     ParseError(String),
-}
-
-pub struct ExtcapControlReader {
-    pub in_file: File,
-}
-
-impl ExtcapControlReader {
-    /// Creates a new instance of [`ExtcapControlReader`].
-    pub fn new(in_path: &Path) -> Self {
-        Self {
-            in_file: File::open(in_path).unwrap(),
-        }
-    }
-
-    pub fn read_control_packet(&self) -> Result<ControlPacket<'static>, ReadControlError> {
-        let mut in_file = &self.in_file;
-        let header_bytes = in_file
-            .try_read_exact::<6>()?
-            .ok_or_else(|| std::io::Error::from(std::io::ErrorKind::UnexpectedEof))?;
-        debug!(
-            "Read header bytes from incoming control message, now parsing... {:?}",
-            header_bytes
-        );
-        let (_rem, packet) = match ControlPacket::parse(&header_bytes) {
-            Ok((rem, packet)) => (rem, packet.into_owned()),
-            Err(nom::Err::Incomplete(nom::Needed::Size(size))) => {
-                let mut payload_bytes = vec![0_u8; size.get()];
-                in_file.read_exact(&mut payload_bytes)?;
-                let all_bytes = [header_bytes.as_slice(), payload_bytes.as_slice()].concat();
-                ControlPacket::parse(&all_bytes)
-                    .map(|(_, packet)| (&[][..], packet.into_owned()))
-                    .unwrap_or_else(|e| panic!("Unable to parse header packet: {e}"))
-            }
-            Err(e) => Err(ReadControlError::ParseError(e.to_string()))?,
-        };
-        debug!("Parsed incoming control message: {packet:?}");
-        Ok(packet)
-    }
 }
 
 /// A reader for an Extcap Control using a [`Channel`][mpsc::channel]. This is
@@ -132,45 +112,67 @@ impl ChannelExtcapControlReader {
     }
 }
 
-/// Manager for the extcap control pipes. The control pipes are a pair of FIFOs, one incoming and
-/// one outgoing, and used to control extra functionalities, mostly UI-related, with Wireshark.
-///
-/// This class manages the serialization and deserialization of the control packets, and dispatches
-/// them onto channels, so that functions running on other tasks can subcribe to and emit
-/// those control packets.
-///
-/// See <https://www.wireshark.org/docs/wsdg_html_chunked/ChCaptureExtcap.html> for details.
-pub struct ExtcapControlSender {
-    out_file: File,
+/// A reader for the Extcap control pipe.
+pub struct ExtcapControlReader {
+    /// The file to read the control packets from. This is the fifo passed with
+    /// the `--extcap-control-in` flag.
+    in_file: File,
 }
 
-impl ExtcapControlSender {
-    /// Creates a new instance of [`ExtcapControlSender`].
-    pub fn new(out_path: &Path) -> Self {
+impl ExtcapControlReader {
+    /// Creates a new instance of [`ExtcapControlReader`].
+    ///
+    /// * `in_path`: The path of the extcap control pipe passed with
+    ///   `--extcap-control-in`.
+    pub fn new(in_path: &Path) -> Self {
         Self {
-            out_file: File::create(out_path).unwrap(),
+            in_file: File::open(in_path).unwrap(),
         }
     }
-}
 
-impl ExtcapControlSenderTrait for ExtcapControlSender {
-    fn send(&mut self, packet: ControlPacket<'_>) -> std::io::Result<()> {
-        self.out_file.write_all(&packet.to_header_bytes())?;
-        self.out_file.write_all(&packet.payload)?;
-        self.out_file.flush().unwrap();
-        Ok(())
+    /// Read one control packet, blocking until the packet arrives. Since the
+    /// control packet pipe is expected to stay open for the entire duration of
+    /// the extcap program, if the pipe is closed prematurely in this function
+    /// here, `UnexpectedEof` will be returned.
+    pub fn read_control_packet(&self) -> Result<ControlPacket<'static>, ReadControlError> {
+        let mut in_file = &self.in_file;
+        let header_bytes = in_file
+            .try_read_exact::<6>()?
+            .ok_or_else(|| std::io::Error::from(std::io::ErrorKind::UnexpectedEof))?;
+        debug!(
+            "Read header bytes from incoming control message, now parsing... {:?}",
+            header_bytes
+        );
+        let (_rem, packet) = match ControlPacket::parse(&header_bytes) {
+            Ok((rem, packet)) => (rem, packet.into_owned()),
+            Err(nom::Err::Incomplete(nom::Needed::Size(size))) => {
+                let mut payload_bytes = vec![0_u8; size.get()];
+                in_file.read_exact(&mut payload_bytes)?;
+                let all_bytes = [header_bytes.as_slice(), payload_bytes.as_slice()].concat();
+                ControlPacket::parse(&all_bytes)
+                    .map(|(_, packet)| (&[][..], packet.into_owned()))
+                    .unwrap_or_else(|e| panic!("Unable to parse header packet: {e}"))
+            }
+            Err(e) => Err(ReadControlError::ParseError(e.to_string()))?,
+        };
+        debug!("Parsed incoming control message: {packet:?}");
+        Ok(packet)
     }
 }
 
-/// Sender for extcap control packets. These control packets controls the UI generated by Wireshark.
-/// See <https://www.wireshark.org/docs/wsdg_html_chunked/ChCaptureExtcap.html> for details.
-pub trait ExtcapControlSenderTrait {
+/// Sender for extcap control packets. These control packets controls the UI
+/// generated by Wireshark. This trait also provides convenience functions for
+/// sending control packets formatted for particular usages like `info_message`
+/// and `status_message`. For other functions controlling various toolbar
+/// controls, see the methods in the [`control`][crate::controls] module instead.
+pub trait ExtcapControlSenderTrait: Sized {
     const UNUSED_CONTROL_NUMBER: u8 = 255;
 
-    fn send(&mut self, packet: ControlPacket<'_>) -> std::io::Result<()>;
+    fn send(self, packet: ControlPacket<'_>) -> std::io::Result<()>;
 
-    /// Shows a message in an information dialog popup.
-    fn info_message(&mut self, message: &str) -> std::io::Result<()> {
+    /// Shows a message in an information dialog popup. The message will show on
+    /// the screen until the user dismisses the popup.
+    fn info_message(self, message: &str) -> std::io::Result<()> {
         self.send(ControlPacket::new_with_payload(
             Self::UNUSED_CONTROL_NUMBER,
             ControlCommand::InformationMessage,
@@ -178,8 +180,9 @@ pub trait ExtcapControlSenderTrait {
         ))
     }
 
-    /// Shows a message in a warning dialog popup.
-    fn warning_message(&mut self, message: &str) -> std::io::Result<()> {
+    /// Shows a message in a warning dialog popup. The message will show on the
+    /// screen until the user dismisses the popup.
+    fn warning_message(self, message: &str) -> std::io::Result<()> {
         self.send(ControlPacket::new_with_payload(
             Self::UNUSED_CONTROL_NUMBER,
             ControlCommand::WarningMessage,
@@ -187,8 +190,9 @@ pub trait ExtcapControlSenderTrait {
         ))
     }
 
-    /// Shows a message in an error dialog popup.
-    fn error_message(&mut self, message: &str) -> std::io::Result<()> {
+    /// Shows a message in an error dialog popup. The message will show on the
+    /// screen until the user dismisses the popup.
+    fn error_message(self, message: &str) -> std::io::Result<()> {
         self.send(ControlPacket::new_with_payload(
             Self::UNUSED_CONTROL_NUMBER,
             ControlCommand::ErrorMessage,
@@ -196,12 +200,73 @@ pub trait ExtcapControlSenderTrait {
         ))
     }
 
-    /// Shows a message in the status bar
-    fn status_message(&mut self, message: &str) -> std::io::Result<()> {
+    /// Shows a message in the status bar at the bottom of the Wireshark window.
+    /// When the message is shown, the status bar will also flash yellow to
+    /// bring it to the user's attention. The message will stay on the status
+    /// bar for a few seconds, or until another message overwrites it.
+    fn status_message(self, message: &str) -> std::io::Result<()> {
         self.send(ControlPacket::new_with_payload(
             Self::UNUSED_CONTROL_NUMBER,
             ControlCommand::StatusbarMessage,
             message.as_bytes(),
         ))
+    }
+}
+
+/// A sender for the extcap control packets. `out_file` should be the file given
+/// by the `--extcap-control-out` flag.
+pub struct ExtcapControlSender {
+    out_file: File,
+}
+
+impl ExtcapControlSender {
+    /// Creates a new instance of [`ExtcapControlSender`].
+    ///
+    /// * `out_path`: The path specified by the `--extcap-control-out` flag.
+    pub fn new(out_path: &Path) -> Self {
+        Self {
+            out_file: File::create(out_path).unwrap(),
+        }
+    }
+}
+
+impl ExtcapControlSenderTrait for &mut ExtcapControlSender {
+    fn send(self, packet: ControlPacket<'_>) -> std::io::Result<()> {
+        self.out_file.write_all(&packet.to_header_bytes())?;
+        self.out_file.write_all(&packet.payload)?;
+        self.out_file.flush().unwrap();
+        Ok(())
+    }
+}
+
+/// An implementation of ExtcapControlSenderTrait that is no-op when the
+/// `Option` is `None`. Since Wireshark may not include the
+/// `--extcap-control-out` flag (e.g. when no controls are returned during
+/// `--extcap-interfaces`, or when running in tshark), this allows an easier but
+/// less efficient way to say `option_extcap_sender.status_message(...)` without
+/// constantly checking for the option.
+impl<T> ExtcapControlSenderTrait for &mut Option<T>
+where
+    for<'a> &'a mut T: ExtcapControlSenderTrait,
+{
+    fn send(self, packet: ControlPacket<'_>) -> Result<(), tokio::io::Error> {
+        if let Some(s) = self {
+            s.send(packet)
+        } else {
+            Ok(())
+        }
+    }
+}
+
+/// Just for syntactic niceness when working with a control sender behind a
+/// mutex. This usage allows the sender to be locked only for the duration of
+/// that one control packet, without holding the lock longer than it needs to.
+impl<T> ExtcapControlSenderTrait for &Mutex<T>
+where
+    for<'a> &'a mut T: ExtcapControlSenderTrait,
+{
+    /// Sends a control message to Wireshark.
+    fn send(self, packet: ControlPacket<'_>) -> Result<(), tokio::io::Error> {
+        self.lock().unwrap().send(packet)
     }
 }

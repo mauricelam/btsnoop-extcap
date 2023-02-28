@@ -387,7 +387,7 @@ pub struct ControlPacket<'a> {
     pub message_length: u32,
     /// Unique number to identify the control, as previously returned in the
     /// `{control}` declarations returned in the
-    /// [`--extcap-interfaces`][ExtcapArgs::extcap_interfaces] phase. This
+    /// [`--extcap-interfaces`][crate::ExtcapArgs::extcap_interfaces] phase. This
     /// number also gives the order of the controls in the interface toolbar.
     pub control_number: u8,
     /// The command associated with this packet. See [`ControlCommand`] for
