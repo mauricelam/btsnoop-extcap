@@ -332,7 +332,10 @@ impl SelectorControl {
     ///
     /// Panics: If `value` is an empty string.
     pub fn remove_value<'a>(&self, value: &'a str) -> ControlPacket<'a> {
-        assert!(!value.is_empty(), "Argument to remove_value must not be empty");
+        assert!(
+            !value.is_empty(),
+            "Argument to remove_value must not be empty"
+        );
         ControlPacket::new_with_payload(
             self.control_number(),
             ControlCommand::Remove,
@@ -342,11 +345,7 @@ impl SelectorControl {
 
     /// Clears all options from the selector.
     pub fn clear(&self) -> ControlPacket<'static> {
-        ControlPacket::new_with_payload(
-            self.control_number(),
-            ControlCommand::Remove,
-            &[][..],
-        )
+        ControlPacket::new_with_payload(self.control_number(), ControlCommand::Remove, &[][..])
     }
 }
 
@@ -404,7 +403,10 @@ impl StringControl {
     ///
     /// Panics: If the string is longer than 32767 bytes.
     pub fn set_value<'a>(&self, message: &'a str) -> ControlPacket<'a> {
-        assert!(message.as_bytes().len() <= 32767, "message must not be longer than 32767 bytes");
+        assert!(
+            message.as_bytes().len() <= 32767,
+            "message must not be longer than 32767 bytes"
+        );
         ControlPacket::new_with_payload(
             self.control_number,
             ControlCommand::Set,

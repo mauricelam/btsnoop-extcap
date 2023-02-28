@@ -11,7 +11,7 @@ use clap::Args;
 use config::{ConfigTrait, SelectorConfig};
 use controls::ToolbarControl;
 use interface::{Interface, Metadata};
-use std::{path::PathBuf, fmt::Display};
+use std::{fmt::Display, path::PathBuf};
 use thiserror::Error;
 
 pub mod config;
@@ -322,13 +322,18 @@ pub trait ExtcapApplication {
 /// }));
 /// // Output: extcap {version=1.0}{help=Some help url}{display=Example extcap}
 /// ```
-pub struct ExtcapFormatter<T>(pub T) where Self: Display;
+pub struct ExtcapFormatter<T>(pub T)
+where
+    Self: Display;
 
 pub trait PrintConfig {
     fn print_config(&self);
 }
 
-impl <T> PrintConfig for T where for <'a> ExtcapFormatter<&'a T>: Display {
+impl<T> PrintConfig for T
+where
+    for<'a> ExtcapFormatter<&'a T>: Display,
+{
     fn print_config(&self) {
         print!("{}", ExtcapFormatter(self));
     }
