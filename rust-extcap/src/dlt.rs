@@ -1,4 +1,4 @@
-use crate::config::ExtcapFormatter;
+use crate::ExtcapFormatter;
 use std::fmt::Display;
 use typed_builder::TypedBuilder;
 
@@ -25,6 +25,22 @@ pub struct Dlt {
     pub display: String,
 }
 
+/// Print the configuration line suitable for use with `--extcap-dlts`.
+///
+/// ```
+/// use rust_extcap::config::ExtcapFormatter;
+/// use rust_extcap::dlt::{DataLink, Dlt};
+///
+/// let dlt = Dlt {
+///     data_link_type: DataLink::ETHERNET,
+///     name: String::from("ETHERNET"),
+///     display: String::from("IEEE 802.3 Ethernet"),
+/// };
+/// assert_eq!(
+///     ExtcapFormatter(&dlt).to_string(),
+///     "dlt {number=1}{name=ETHERNET}{display=IEEE 802.3 Ethernet}\n",
+/// );
+/// ```
 impl Display for ExtcapFormatter<&Dlt> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(
@@ -34,27 +50,5 @@ impl Display for ExtcapFormatter<&Dlt> {
             self.0.name,
             self.0.display
         )
-    }
-}
-
-impl Dlt {
-    /// Print the configuration line suitable for use with `--extcap-dlts`.
-    ///
-    /// ```
-    /// use rust_extcap::config::ExtcapFormatter;
-    /// use rust_extcap::dlt::{DataLink, Dlt};
-    ///
-    /// let dlt = Dlt {
-    ///     data_link_type: DataLink::ETHERNET,
-    ///     name: String::from("ETHERNET"),
-    ///     display: String::from("IEEE 802.3 Ethernet"),
-    /// };
-    /// assert_eq!(
-    ///     ExtcapFormatter(&dlt).to_string(),
-    ///     "dlt {number=1}{name=ETHERNET}{display=IEEE 802.3 Ethernet}\n",
-    /// );
-    /// ```
-    pub fn print_config(&self) {
-        print!("{}", ExtcapFormatter(self))
     }
 }

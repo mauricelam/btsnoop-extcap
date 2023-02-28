@@ -3,6 +3,8 @@ use std::fmt::{Debug, Display};
 use std::ops::RangeInclusive;
 use typed_builder::TypedBuilder;
 
+pub use crate::{ExtcapFormatter, PrintConfig};
+
 macro_rules! generate_config_ext {
     ($config_type:ty) => {
         impl ConfigExtGenerated for $config_type {
@@ -12,10 +14,6 @@ macro_rules! generate_config_ext {
 
             fn as_any(&self) -> &dyn Any {
                 self
-            }
-
-            fn print_config(&self) {
-                print!("{}", ExtcapFormatter(self));
             }
         }
     };
@@ -930,7 +928,7 @@ pub struct ConfigOptionValue {
 
 impl ConfigOptionValue {
     pub fn print_config(&self, number: u8) {
-        print!("{}", ExtcapFormatter(&(self, number)));
+        (self, number).print_config()
     }
 }
 
@@ -946,12 +944,9 @@ impl<'a> Display for ExtcapFormatter<&'a (&ConfigOptionValue, u8)> {
     }
 }
 
-pub struct ExtcapFormatter<T>(pub T);
-
-pub trait ConfigExtGenerated {
+pub trait ConfigExtGenerated: PrintConfig {
     fn call(&self) -> &str;
     fn as_any(&self) -> &dyn Any;
-    fn print_config(&self);
 }
 
 pub trait ConfigTrait: ConfigExtGenerated {}

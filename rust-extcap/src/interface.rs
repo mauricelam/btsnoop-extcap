@@ -1,6 +1,6 @@
-use std::borrow::Cow;
+use std::{borrow::Cow, fmt::Display};
 
-use crate::dlt::Dlt;
+use crate::{dlt::Dlt, ExtcapFormatter};
 
 pub struct Metadata {
     pub version: Cow<'static, str>,
@@ -8,12 +8,13 @@ pub struct Metadata {
     pub display_description: Cow<'static, str>,
 }
 
-impl Metadata {
-    pub fn print_config(&self) {
-        println!(
+impl Display for ExtcapFormatter<&Metadata> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(
+            f,
             "extcap {{version={}}}{{help={}}}{{display={}}}",
-            self.version, self.help_url, self.display_description
-        );
+            self.0.version, self.0.help_url, self.0.display_description
+        )
     }
 }
 
@@ -37,11 +38,12 @@ pub struct Interface {
     pub dlt: Dlt,
 }
 
-impl Interface {
-    pub fn print_config(&self) {
-        println!(
+impl Display for ExtcapFormatter<&Interface> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(
+            f,
             "interface {{value={}}}{{display={}}}",
-            self.value, self.display,
-        );
+            self.0.value, self.0.display,
+        )
     }
 }

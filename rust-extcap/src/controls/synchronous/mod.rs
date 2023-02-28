@@ -1,7 +1,4 @@
-//! Tools for handling the Control Pipe sycnhrnously. See Wireshark's [Adding
-//! Capture Interfaces And Log Sources Using
-//! Extcap](https://www.wireshark.org/docs/wsdg_html_chunked/ChCaptureExtcap.html#_messages)
-//! section 8.2.3.2.1 for a description of the protocol format.
+//! Tools for handling the Control Pipe synchrnously.
 //!
 //! There are three main classes provided in this module:
 //!
@@ -12,6 +9,10 @@
 //! * [`ChannelExtcapControlReader`] – A wrapper around `ExtcapControlReader`
 //!   that provides simpler, but less flexible, handling of the communication
 //!   using a mspc channel.
+//!
+//! See Wireshark's [Adding Capture Interfaces And Log Sources Using
+//! Extcap](https://www.wireshark.org/docs/wsdg_html_chunked/ChCaptureExtcap.html#_messages)
+//! section 8.2.3.2.1 for a description of the protocol format.
 
 use log::debug;
 use nom_derive::Parse;

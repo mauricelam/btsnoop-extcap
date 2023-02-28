@@ -1,8 +1,10 @@
-use std::borrow::Cow;
+use std::{borrow::Cow, fmt::Display};
 
 use nom::number::streaming::be_u24;
 use nom_derive::Nom;
 use typed_builder::TypedBuilder;
+
+use crate::{ExtcapFormatter, PrintConfig};
 
 use {asynchronous::ExtcapControlSenderTrait as _, synchronous::ExtcapControlSenderTrait as _};
 
@@ -90,19 +92,21 @@ impl BooleanControl {
     }
 }
 
+impl Display for ExtcapFormatter<&BooleanControl> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "control {{number={}}}", self.0.control_number())?;
+        write!(f, "{{type=boolean}}")?;
+        write!(f, "{{display={}}}", self.0.display)?;
+        if let Some(tooltip) = &self.0.tooltip {
+            write!(f, "{{tooltip={}}}", tooltip)?;
+        }
+        writeln!(f)
+    }
+}
+
 impl ToolbarControl for BooleanControl {
     fn control_number(&self) -> u8 {
         self.control_number
-    }
-
-    fn print_config(&self) {
-        print!("control {{number={}}}", self.control_number());
-        print!("{{type=boolean}}");
-        print!("{{display={}}}", self.display);
-        if let Some(tooltip) = &self.tooltip {
-            print!("{{tooltip={}}}", tooltip);
-        }
-        println!()
     }
 }
 
@@ -133,15 +137,17 @@ impl ToolbarControl for ButtonControl {
     fn control_number(&self) -> u8 {
         self.control_number
     }
+}
 
-    fn print_config(&self) {
-        print!("control {{number={}}}", self.control_number());
-        print!("{{type=button}}");
-        print!("{{display={}}}", self.display);
-        if let Some(tooltip) = &self.tooltip {
-            print!("{{tooltip={}}}", tooltip);
+impl Display for ExtcapFormatter<&ButtonControl> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "control {{number={}}}", self.0.control_number())?;
+        write!(f, "{{type=button}}")?;
+        write!(f, "{{display={}}}", self.0.display)?;
+        if let Some(tooltip) = &self.0.tooltip {
+            write!(f, "{{tooltip={}}}", tooltip)?;
         }
-        println!();
+        writeln!(f)
     }
 }
 
@@ -175,16 +181,18 @@ impl ToolbarControl for LoggerControl {
     fn control_number(&self) -> u8 {
         self.control_number
     }
+}
 
-    fn print_config(&self) {
-        print!("control {{number={}}}", self.control_number());
-        print!("{{type=button}}");
-        print!("{{role=logger}}");
-        print!("{{display={}}}", self.display);
-        if let Some(tooltip) = &self.tooltip {
-            print!("{{tooltip={tooltip}}}");
+impl Display for ExtcapFormatter<&LoggerControl> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "control {{number={}}}", self.0.control_number())?;
+        write!(f, "{{type=button}}")?;
+        write!(f, "{{role=logger}}")?;
+        write!(f, "{{display={}}}", self.0.display)?;
+        if let Some(tooltip) = &self.0.tooltip {
+            write!(f, "{{tooltip={tooltip}}}")?;
         }
-        println!();
+        writeln!(f)
     }
 }
 
@@ -203,16 +211,18 @@ impl ToolbarControl for HelpButtonControl {
     fn control_number(&self) -> u8 {
         self.control_number
     }
+}
 
-    fn print_config(&self) {
-        print!("control {{number={}}}", self.control_number());
-        print!("{{type=button}}");
-        print!("{{role=help}}");
-        print!("{{display={}}}", self.display);
-        if let Some(tooltip) = &self.tooltip {
-            print!("{{tooltip={tooltip}}}");
+impl Display for ExtcapFormatter<&HelpButtonControl> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "control {{number={}}}", self.0.control_number())?;
+        write!(f, "{{type=button}}")?;
+        write!(f, "{{role=help}}")?;
+        write!(f, "{{display={}}}", self.0.display)?;
+        if let Some(tooltip) = &self.0.tooltip {
+            write!(f, "{{tooltip={tooltip}}}")?;
         }
-        println!();
+        writeln!(f)
     }
 }
 
@@ -232,16 +242,18 @@ impl ToolbarControl for RestoreButtonControl {
     fn control_number(&self) -> u8 {
         self.control_number
     }
+}
 
-    fn print_config(&self) {
-        print!("control {{number={}}}", self.control_number());
-        print!("{{type=button}}");
-        print!("{{role=restore}}");
-        print!("{{display={}}}", self.display);
-        if let Some(tooltip) = &self.tooltip {
-            print!("{{tooltip={tooltip}}}");
+impl Display for ExtcapFormatter<&RestoreButtonControl> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "control {{number={}}}", self.0.control_number())?;
+        write!(f, "{{type=button}}")?;
+        write!(f, "{{role=restore}}")?;
+        write!(f, "{{display={}}}", self.0.display)?;
+        if let Some(tooltip) = &self.0.tooltip {
+            write!(f, "{{tooltip={tooltip}}}")?;
         }
-        println!();
+        writeln!(f)
     }
 }
 
@@ -293,20 +305,24 @@ impl ToolbarControl for SelectorControl {
     fn control_number(&self) -> u8 {
         self.control_number
     }
+}
 
-    fn print_config(&self) {
-        print!(
+impl Display for ExtcapFormatter<&SelectorControl> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
             "control {{number={}}}{{type=selector}}",
-            self.control_number()
-        );
-        print!("{{display={}}}", self.display);
-        if let Some(tooltip) = &self.tooltip {
-            print!("{{tooltip={}}}", tooltip);
+            self.0.control_number()
+        )?;
+        write!(f, "{{display={}}}", self.0.display)?;
+        if let Some(tooltip) = &self.0.tooltip {
+            write!(f, "{{tooltip={}}}", tooltip)?;
         }
-        println!();
-        for value in self.options.iter() {
-            value.print_config(self);
+        writeln!(f)?;
+        for value in self.0.options.iter() {
+            value.print_config(self.0);
         }
+        Ok(())
     }
 }
 /// This provides a text edit line with the possibility to set a string or
@@ -347,29 +363,31 @@ impl ToolbarControl for StringControl {
     fn control_number(&self) -> u8 {
         self.control_number
     }
+}
 
-    fn print_config(&self) {
-        print!(
+impl Display for ExtcapFormatter<&StringControl> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
             "control {{number={}}}{{type=string}}",
-            self.control_number()
-        );
-        print!("{{display={}}}", self.display);
-        if let Some(tooltip) = &self.tooltip {
-            print!("{{tooltip={}}}", tooltip);
+            self.0.control_number()
+        )?;
+        write!(f, "{{display={}}}", self.0.display)?;
+        if let Some(tooltip) = &self.0.tooltip {
+            write!(f, "{{tooltip={}}}", tooltip)?;
         }
-        if let Some(placeholder) = &self.placeholder {
-            print!("{{placeholder={}}}", placeholder);
+        if let Some(placeholder) = &self.0.placeholder {
+            write!(f, "{{placeholder={}}}", placeholder)?;
         }
-        if let Some(validation) = &self.validation {
-            print!("{{validation={}}}", validation);
+        if let Some(validation) = &self.0.validation {
+            write!(f, "{{validation={}}}", validation)?;
         }
-        println!();
+        writeln!(f)
     }
 }
 
-pub trait ToolbarControl: std::fmt::Debug {
+pub trait ToolbarControl: PrintConfig {
     fn control_number(&self) -> u8;
-    fn print_config(&self);
 }
 
 /// Control packets for the extcap interface. This is used for communication of
