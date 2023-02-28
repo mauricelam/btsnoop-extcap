@@ -16,7 +16,6 @@ use thiserror::Error;
 
 pub mod config;
 pub mod controls;
-pub mod dlt;
 pub mod interface;
 
 /// The arguments defined by extcap. These arguments are usable as a clap
@@ -263,7 +262,7 @@ pub trait ExtcapApplication {
         let interface_obj = self
             .interfaces()
             .iter()
-            .find(|i| i.value.as_str() == interface)
+            .find(|i| i.value == interface)
             .ok_or_else(|| ListConfigError::UnknownInterface(String::from(interface)))?;
         for config in self.configs(interface_obj) {
             config.print_config();

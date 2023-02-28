@@ -11,8 +11,7 @@ use rust_extcap::{
         ChannelExtcapControlReader, ExtcapControlSender, ExtcapControlSenderTrait,
     },
     controls::*,
-    dlt::Dlt,
-    interface::{Interface, Metadata},
+    interface::{Dlt, Interface, Metadata},
     ExtcapApplication, ExtcapError,
 };
 use std::{
@@ -205,25 +204,25 @@ lazy_static! {
         metadata: rust_extcap::interface::Metadata {
             help_url: "http://www.wireshark.org".into(),
             display_description: "Rust Example extcap interface".into(),
-            ..Default::default()
+            ..rust_extcap::interface::cargo_metadata!()
         },
         interfaces: vec![
             rust_extcap::interface::Interface {
-                value: String::from("rs-example1"),
-                display: String::from("Rust Example interface 1 for extcap"),
+                value: "rs-example1".into(),
+                display: "Rust Example interface 1 for extcap".into(),
                 dlt: Dlt {
                     data_link_type: DataLink::USER0,
-                    name: String::from("USER0"),
-                    display: String::from("Demo Implementation for Extcap"),
+                    name: "USER0".into(),
+                    display: "Demo Implementation for Extcap".into(),
                 },
             },
             rust_extcap::interface::Interface {
-                value: String::from("rs-example2"),
-                display: String::from("Rust Example interface 2 for extcap"),
+                value: "rs-example2".into(),
+                display: "Rust Example interface 2 for extcap".into(),
                 dlt: Dlt {
                     data_link_type: DataLink::USER1,
-                    name: String::from("USER1"),
-                    display: String::from("Demo Implementation for Extcap"),
+                    name: "USER1".into(),
+                    display: "Demo Implementation for Extcap".into(),
                 },
             }
         ],
@@ -325,7 +324,7 @@ fn control_write_defaults(
     for i in 1..16 {
         APPLICATION
             .control_delay
-            .add_value(&i.to_string(), &format!("{i} sec"))
+            .add_value(&i.to_string(), Some(&format!("{i} sec")))
             .send(extcap_control)?;
     }
     APPLICATION
@@ -548,7 +547,7 @@ fn handle_control_packet(
     if let Some(log) = log {
         APPLICATION
             .control_logger
-            .add_log(&format!("{}\n", log))
+            .add_log(log.into())
             .send(control_sender)?;
     }
     debug!("Read control packet Loop end");
@@ -594,7 +593,7 @@ a qui officia deserunt mollit anim id est laborum.";
 
         APPLICATION
             .control_logger
-            .clear_and_add_log(&format!("Log started at {:?}\n", SystemTime::now()))
+            .clear_and_add_log(format!("Log started at {:?}", SystemTime::now()).into())
             .send(out_pipe)?;
         control_write_defaults(
             out_pipe,
@@ -624,7 +623,7 @@ a qui officia deserunt mollit anim id est laborum.";
 
             APPLICATION
                 .control_logger
-                .add_log(&format!("Received packet #{counter}\n"))
+                .add_log(format!("Received packet #{counter}").into())
                 .send(control_sender)?;
             counter += 1;
 
@@ -739,11 +738,28 @@ fn validate_capture_filter(filter: &str) {
 
 #[cfg(test)]
 mod test {
-    use clap::CommandFactory;
     use super::AppArgs;
+    use clap::CommandFactory;
+    use rust_extcap::interface::cargo_metadata;
 
     #[test]
     fn test_parse() {
         AppArgs::command().debug_assert();
+    }
+
+    #[test]
+    fn test_default_metadata() {
+        // Test to make sure that the default metadata is pulled from the
+        // binary's Cargo.toml, not the library's.
+        let metadata = cargo_metadata!();
+        assert_eq!(metadata.version, "0.1.0");
+        assert_eq!(
+            metadata.help_url,
+            "https://gitlab.com/wireshark/wireshark/-/blob/master/doc/extcap_example.py"
+        );
+        assert_eq!(
+            metadata.display_description,
+            "Extcap example program for Rust"
+        );
     }
 }
