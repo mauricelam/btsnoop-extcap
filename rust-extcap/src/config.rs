@@ -1,3 +1,10 @@
+//! Module for implementing extcap config, which are UI elements shown in
+//! Wireshark that allows the user to customize the capture.
+//!
+//! Each interface can have custom options that are valid for this interface
+//! only. Those config options are specified on the command line when running
+//! the actual capture.
+
 use std::any::Any;
 use std::fmt::{Debug, Display};
 use std::ops::RangeInclusive;
@@ -81,7 +88,7 @@ pub struct SelectorConfig {
     /// If this is `Some`, a refresh button will be shown next to the selector,
     /// allowing the user to refresh the list of available options to the return
     /// value of this function.
-    #[builder(default, setter(strip_option, into))]
+    #[builder(default, setter(strip_option))]
     pub reload: Option<Box<dyn ReloadFn>>,
     /// The placeholder string displayed if there is no value selected.
     #[builder(default, setter(strip_option, into))]
@@ -1055,18 +1062,7 @@ impl<'a> Display for ExtcapFormatter<&'a (&ConfigOptionValue, u8)> {
 }
 
 /// Represents a config, which is a UI element shown in Wireshark that allows
-/// the user to customize the capture interface.
-///
-/// Each interface can have custom options that are valid for this interface
-/// only. Those config options are specified on the command line when running
-/// the actual capture. To allow an end-user to specify certain options, such
-/// options may be provided using the extcap config argument.
-///
-/// To share which options are available for an interface, the extcap responds
-/// to the command --extcap-config, which shows all the available options (aka
-/// additional command line options).
-///
-/// Those options are used to build a configuration dialog for the interface.
+/// the user to customize the capture.
 pub trait ConfigTrait: PrintConfig + Any {
     /// The command line option that will be sent to this extcap program. For
     /// example, if this field is `foobar`, and the corresponding value is `42`,

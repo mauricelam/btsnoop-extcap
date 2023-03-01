@@ -52,7 +52,7 @@ lazy_static! {
         .display("Remote Channel")
         .tooltip("Remote Channel Selector")
         .placeholder("Load interfaces ...")
-        .reload(|| {
+        .reload(Box::new(|| {
             vec![
             ConfigOptionValue::builder()
                 .value("if1")
@@ -72,8 +72,8 @@ lazy_static! {
                 .display("Remote Interface 4")
                 .build(),
             ]
-        })
-        .options([
+        }))
+        .default_options([
             ConfigOptionValue::builder()
                 .value("if1")
                 .display("Remote1")
@@ -204,7 +204,7 @@ lazy_static! {
         metadata: rust_extcap::interface::Metadata {
             help_url: "http://www.wireshark.org".into(),
             display_description: "Rust Example extcap interface".into(),
-            ..rust_extcap::interface::cargo_metadata!()
+            ..rust_extcap::cargo_metadata!()
         },
         interfaces: vec![
             rust_extcap::interface::Interface {
@@ -740,7 +740,7 @@ fn validate_capture_filter(filter: &str) {
 mod test {
     use super::AppArgs;
     use clap::CommandFactory;
-    use rust_extcap::interface::cargo_metadata;
+    use rust_extcap::cargo_metadata;
 
     #[test]
     fn test_parse() {

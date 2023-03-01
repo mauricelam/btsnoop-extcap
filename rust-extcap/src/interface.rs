@@ -35,19 +35,6 @@ impl Display for ExtcapFormatter<&Metadata> {
     }
 }
 
-#[macro_export]
-macro_rules! cargo_metadata_impl {
-    () => {
-        $crate::interface::Metadata {
-            version: env!("CARGO_PKG_VERSION").into(),
-            help_url: env!("CARGO_PKG_HOMEPAGE").into(),
-            display_description: env!("CARGO_PKG_DESCRIPTION").into(),
-        }
-    };
-}
-
-pub use cargo_metadata_impl as cargo_metadata;
-
 /// Definition of an interface for this extcap program. An interface is an entry
 /// in the Wireshark homepage, similar to `Wi-Fi: en0`. Instances of this should
 /// be returned in
@@ -67,8 +54,9 @@ pub struct Interface {
     /// determine how to dissect the packet data given by this extcap program.
     ///
     /// Note: While the extcap-example and documentation chapter 8.2 says this
-    /// is a list of DLTs, in reality only one DLT per interface is supported
-    /// https://www.wireshark.org/lists/wireshark-dev/201511/msg00143.html
+    /// is a list of DLTs, in reality only one DLT per interface is supported,
+    /// per [this
+    /// thread](https://www.wireshark.org/lists/wireshark-dev/201511/msg00143.html).
     pub dlt: Dlt,
 }
 
@@ -99,7 +87,7 @@ impl Display for ExtcapFormatter<&Interface> {
 /// defined together with the [`Interface`][crate::interface::Interface] and
 /// used in the [`ExtcapApplication`][crate::ExtcapApplication]. But you can
 /// also use this class standalone and print out the resulting config using the
-/// [`print_config`][Self::print_config] method.
+/// [`print_config`][crate::PrintConfig::print_config] method.
 #[derive(Clone, Debug, TypedBuilder)]
 pub struct Dlt {
     /// The data link type this packet should be analyzed as.

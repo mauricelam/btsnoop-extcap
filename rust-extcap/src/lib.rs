@@ -13,7 +13,7 @@ use clap::Args;
 use config::{ConfigTrait, SelectorConfig};
 use controls::ToolbarControl;
 use interface::{Interface, Metadata};
-use std::{fmt::Display, path::PathBuf, any::Any};
+use std::{fmt::Display, path::PathBuf};
 use thiserror::Error;
 
 pub mod config;
@@ -185,19 +185,24 @@ pub struct ExtcapArgs {
     pub extcap_reload_option: Option<String>,
 }
 
-#[derive(Debug, Error)]
-pub enum ExtcapError {
-    #[error("Missing input extcap command")] // TODO: installation instructions
-    NotExtcapInput,
-    #[error(transparent)]
-    ListConfigError(#[from] ListConfigError),
-    #[error(transparent)]
-    ReloadConfigError(#[from] ReloadConfigError),
-    #[error(transparent)]
-    PrintDltError(#[from] PrintDltError),
-}
-
 impl ExtcapArgs {
+    /// Runs the extcap program with the parsed arguments. This is the main
+    /// entry point for the extcap program. Implementations should call this
+    /// from their `main` function.
+    ///
+    /// ```
+    /// use clap::Parser;
+    ///
+    /// #[derive(Debug, Parser)]
+    /// struct AppArgs {
+    ///     #[command(flatten)]
+    ///     extcap: rust_extcap::ExtcapArgs,
+    /// }
+    ///
+    /// fn main() -> anyhow::Result<()> {
+    ///     AppArgs::parse().extcap.run(extcap_app)
+    /// }
+    /// ```
     pub fn run<App: ExtcapApplication>(&self, app: &App) -> Result<(), ExtcapError> {
         if self.extcap_interfaces {
             app.list_interfaces();
@@ -222,34 +227,167 @@ impl ExtcapArgs {
     }
 }
 
+/// Error reported when running the [`ExtcapApplication`].
+#[derive(Debug, Error)]
+pub enum ExtcapError {
+    /// The inputs given are not expected input from Wireshark. This can happen
+    /// for example, when the user tries to run the application directly from
+    /// command line. When this happens, you can print the installation
+    /// instructions using the [`print_installation_instructions`] function,
+    /// which will tell the user create a symlink from the Wireshark extcap
+    /// directory to the installed binary location.
+    #[error("Missing input extcap command. Maybe you need to install this with Wireshark instead?")]
+    NotExtcapInput,
+
+    /// Error when listing config. See [`ListConfigError`].
+    #[error(transparent)]
+    ListConfigError(#[from] ListConfigError),
+
+    /// Error when reloading config. See [`ReloadConfigError`].
+    #[error(transparent)]
+    ReloadConfigError(#[from] ReloadConfigError),
+
+    /// Error when printlng DLTs. See [`PrintDltError`].
+    #[error(transparent)]
+    PrintDltError(#[from] PrintDltError),
+}
+
+/// Prints the installation instructions to stdout. This is useful to show if
+/// the program is used in unexpected ways (e.g. not as an extcap program), so
+/// users can easily install with a copy-pastable command.
+///
+/// TODO: Include the printed message in the docs.
+pub fn print_installation_instructions() {
+    // TODO
+}
+
+/// Error printing DLTs to Wireshark.
 #[derive(Debug, Error)]
 pub enum PrintDltError {
+    /// The interface string value given from Wireshark is not found. Wireshark
+    /// invokes the extcap program multiple times, first to get the list of
+    /// interfaces, then multiple times to get the DLTs. Therefore,
+    /// implementations should make sure that the interfaces returned from
+    /// [`ExtcapApplication::interfaces`] are deterministic and doesn't change
+    /// across invocations of the program.
     #[error("Cannot list DLT for unknown interface \"{0}\".")]
     UnknownInterface(String),
 }
 
+/// Error when reloading configs. Config reload happens when a config, like
+/// [`crate::config::SelectorConfig`] specifics the `reload` field and the user
+/// clicks on the created reload button.
 #[derive(Debug, Error)]
 pub enum ReloadConfigError {
+    /// The interface string value given from Wireshark is not found. Wireshark
+    /// makes separate invocations to get the initial list of interfaces, and
+    /// when the user subsequently hits reload on a config. Therefore,
+    /// implementations should make sure that the interfaces returned from
+    /// [`ExtcapApplication::interfaces`] are deterministic and doesn't change
+    /// across invocations of the program.
     #[error("Cannot reload config options for unknown interface \"{0}\".")]
     UnknownInterface(String),
+
+    /// The config `call` value given from Wireshark is not found in the configs
+    /// defined for this [`ExtcapApplication`]. Wireshark makes separate
+    /// invocations to get the initial list of interfaces, and when the user
+    /// subsequently hits reload on a config. Therefore, implementations should
+    /// make sure that the configs returned from
+    /// [`ExtcapApplication::configs`] are deterministic and doesn't change
+    /// across invocations of the program.
     #[error("Cannot reload options for unknown config \"{0}\".")]
     UnknownConfig(String),
+
+    /// The config given by Wireshark is found, but it is not a
+    /// [`SelectorConfig`] or
+    /// [`EditSelectorConfig`][config::EditSelectorConfig]. This configuration
+    /// is not expected to be invoked by Wireshark, as the
+    /// [`SelectorConfig::reload`] field only exists for the appropriate types.
     #[error("Cannot reload config options for \"{0}\", which is not of type \"selector\".")]
     UnsupportedConfig(String),
 }
 
+/// Error listing configs.
 #[derive(Debug, Error)]
 pub enum ListConfigError {
+    /// The interface string value given from Wireshark is not found. Wireshark
+    /// makes separate invocations to get the initial list of interfaces, and
+    /// when the user subsequently opens the config dialog. Therefore,
+    /// implementations should make sure that the interfaces returned from
+    /// [`ExtcapApplication::interfaces`] are deterministic and doesn't change
+    /// across invocations of the program.
     #[error("Cannot reload config options for unknown interface \"{0}\".")]
     UnknownInterface(String),
 }
 
+/// Trait to help implement an extcap program. This application can be run by
+/// passing it into [`ExtcapArgs::run`]. Since during a capture session,
+/// Wireshark can call the extcap program multiple times (e.g. to get the list
+/// of interfaces, configs, and DLTs), implementations of the application should
+/// be consistent across multiple invocations. So it is recommended to put the
+/// application in a `lazy_static` to make sure that the application
+/// initialization doesn't depend on program state or command line arguments.
+///
+/// There 4 things need to be provided for an extcap implementation:
+/// 1. [`metadata`][Self::metadata]: The version information and metadata for
+///        this program, used by Wireshark to display in the UI.
+/// 2. [`interfaces`][Self::interfaces]: The list of interfaces that can be
+///        captured by this program.
+/// 3. [`toolbar_controls`][Self::toolbar_controls]: Optional, a list of toolbar
+///        controls shown in the Wireshark UI.
+/// 4. [`configs`][Self::configs]: Optional, a list of UI configuration options
+///        that the user can change.
+/// ```
+/// #use lazy_static::lazy_static;
+/// use clap::Parser;
+///
+/// lazy_static! {
+///     static ref APPLICATION: ExtcapApplication = ExtcapApplication {
+///         // ...
+///     }
+/// }
+///
+/// #[derive(Debug, Parser)]
+/// struct AppArgs {
+///     #[command(flatten)]
+///     extcap: rust_extcap::ExtcapArgs,
+/// }
+///
+/// fn main() -> anyhow::Result<()> {
+///     AppArgs::parse().extcap.run(extcap_app)
+/// }
+/// ```
 pub trait ExtcapApplication {
+    /// Returns the metadata like version info and help URL for this program.
+    /// This is used by Wireshark to display in the UI.
+    ///
+    /// The [`cargo_metadata`] macro can be used to create this from data in
+    /// `Cargo.toml`.
     fn metadata(&self) -> &Metadata;
+
+    /// List the interfaces supported by this application. Wireshark calls this
+    /// when the application starts up to populate the list of available
+    /// interfaces. Since that interface list is cached and the interface names
+    /// can be used later when the user tries to start a capture session, the
+    /// interface list should stay as consistent as possible. If the list of
+    /// interfaces can change, the extcap program must be prepared to handle
+    /// `UnknownInterface` from the result.
     fn interfaces(&self) -> &[Interface];
+
+    /// List the toolbar controls for this interface. In Wireshark, this is
+    /// presented to the user in View > Interface Toolbars. See the
+    /// documentation in [`controls`] for details.
     fn toolbar_controls(&self) -> Vec<&dyn ToolbarControl>;
+
+    /// List the configurable UI elements for this interface. This is presented
+    /// to the user when they click on the gear icon next to the capture
+    /// interface name, or if they try to start a capture that is lacking a
+    /// required config value.
     fn configs(&self, interface: &Interface) -> Vec<&dyn ConfigTrait>;
 
+    /// List the interfaces and toolbar controls supported by this extcap
+    /// implementation in stdout for Wireshark's consumption. Corresponds to the
+    /// `--extcap-interfaces` argument in extcap.
     fn list_interfaces(&self) {
         self.metadata().print_config();
         for interface in self.interfaces() {
@@ -260,6 +398,9 @@ pub trait ExtcapApplication {
         }
     }
 
+    /// List the configs available for the given interface in stdout for
+    /// Wireshark's consumption. Corresponds to the `--extcap-config` argument
+    /// in extcap.
     fn list_configs(&self, interface: &str) -> Result<(), ListConfigError> {
         let interface_obj = self
             .interfaces()
@@ -272,6 +413,9 @@ pub trait ExtcapApplication {
         Ok(())
     }
 
+    /// Reloads the available options for a given config and prints them out for
+    /// Wireshark's consumption. The default implementation looks up config returned from `configs` and calls its reload function. Corresponds to the `--extcap-reload-option`
+    /// argument in extcap.
     fn reload_config(&self, interface: &str, config: &str) -> Result<(), ReloadConfigError> {
         let i = self
             .interfaces()
@@ -286,7 +430,8 @@ pub trait ExtcapApplication {
             .as_any()
             .downcast_ref::<SelectorConfig>()
             .ok_or_else(|| ReloadConfigError::UnsupportedConfig(String::from(config)))?;
-        for opt in selector_config.reload.as_ref().unwrap()() {
+        let reload_fn = selector_config.reload.as_ref().ok_or_else(|| ReloadConfigError::UnsupportedConfig(String::from(config)))?;
+        for opt in reload_fn() {
             opt.print_config(selector_config.config_number);
         }
         Ok(())
@@ -295,6 +440,7 @@ pub trait ExtcapApplication {
     /// Prints the DLT to stdout for consumption by Wireshark. The default
     /// implementation provided takes the DLT from the interfaces returned from
     /// [`interfaces`][Self::interfaces] and prints out the correct one.
+    /// Corresponds to the `--extcap-dlts` argument in extcap.
     fn print_dlt(&self, interface: &str) -> Result<(), PrintDltError> {
         self.interfaces()
             .iter()
@@ -347,6 +493,26 @@ where
     fn print_config(&self) {
         print!("{}", ExtcapFormatter(self));
     }
+}
+
+/// Creates a [`Metadata`] from information in `Cargo.toml`.
+///
+/// ----------------------------------------
+/// | Metadata field       | Cargo.toml    |
+/// ----------------------------------------
+/// |`version`             | `version`     |
+/// |`help_url`            | `homepage`    |
+/// |`display_description` | `description` |
+/// ----------------------------------------
+#[macro_export]
+macro_rules! cargo_metadata {
+    () => {
+        $crate::interface::Metadata {
+            version: env!("CARGO_PKG_VERSION").into(),
+            help_url: env!("CARGO_PKG_HOMEPAGE").into(),
+            display_description: env!("CARGO_PKG_DESCRIPTION").into(),
+        }
+    };
 }
 
 #[cfg(test)]
