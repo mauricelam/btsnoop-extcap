@@ -7,7 +7,7 @@ pub use crate::{ExtcapFormatter, PrintConfig};
 
 macro_rules! generate_config_ext {
     ($config_type:ty) => {
-        impl ConfigExtGenerated for $config_type {
+        impl ConfigTrait for $config_type {
             fn call(&self) -> &str {
                 &self.call
             }
@@ -33,12 +33,12 @@ impl std::fmt::Debug for dyn ReloadFn {
     }
 }
 
-/// Option fields where the user may choose from one or more options. If parent
-/// is provided for the value items, the option fields for multicheck and
-/// selector are presented in a tree-like structure. selector and radio values
-/// must present a default value, which will be the value provided to the extcap
-/// binary for this argument. editselector option fields let the user select
-/// from a list of items or enter a custom value.
+/// A selector config UI element that allows the user to select an option from a
+/// drop-down list.
+///
+/// TODO: Double check this: selector and radio values must present a default
+/// value, which will be the value provided to the extcap binary for this
+/// argument.
 ///
 /// ```
 /// use rust_extcap::config::*;
@@ -64,22 +64,33 @@ impl std::fmt::Debug for dyn ReloadFn {
 /// ```
 #[derive(Debug, TypedBuilder)]
 pub struct SelectorConfig {
+    /// The config number, a unique identifier for this config.
     pub config_number: u8,
+    /// The command line option that will be sent to this extcap program. For
+    /// example, if this field is `foobar`, and the corresponding value is `42`,
+    /// then `--foobar 42` will be sent to this program during the extcap
+    /// capture.
     #[builder(setter(into))]
     pub call: String,
+    /// The user-friendly label for the selector.
     #[builder(setter(into))]
     pub display: String,
+    /// The tooltip shown on when hovering over the UI element.
     #[builder(default, setter(strip_option, into))]
     pub tooltip: Option<String>,
-    #[builder(default, setter(strip_option))]
+    /// If this is `Some`, a refresh button will be shown next to the selector,
+    /// allowing the user to refresh the list of available options to the return
+    /// value of this function.
+    #[builder(default, setter(strip_option, into))]
     pub reload: Option<Box<dyn ReloadFn>>,
+    /// The placeholder string displayed if there is no value selected.
     #[builder(default, setter(strip_option, into))]
     pub placeholder: Option<String>,
+    /// The default list of options presented by this selector.
     #[builder(setter(into))]
-    pub options: Vec<ConfigOptionValue>,
+    pub default_options: Vec<ConfigOptionValue>,
 }
 
-impl ConfigTrait for SelectorConfig {}
 impl<'a> Display for ExtcapFormatter<&'a SelectorConfig> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "arg {{number={}}}", self.0.config_number)?;
@@ -96,7 +107,7 @@ impl<'a> Display for ExtcapFormatter<&'a SelectorConfig> {
             write!(f, "{{reload=true}}")?;
         }
         writeln!(f)?;
-        for opt in self.0.options.iter() {
+        for opt in self.0.default_options.iter() {
             write!(f, "{}", ExtcapFormatter(&(opt, self.0.config_number)))?;
         }
         Ok(())
@@ -105,12 +116,12 @@ impl<'a> Display for ExtcapFormatter<&'a SelectorConfig> {
 
 generate_config_ext!(SelectorConfig);
 
-/// Option fields where the user may choose from one or more options. If parent
-/// is provided for the value items, the option fields for multicheck and
-/// selector are presented in a tree-like structure. selector and radio values
-/// must present a default value, which will be the value provided to the extcap
-/// binary for this argument. editselector option fields let the user select
-/// from a list of items or enter a custom value.
+/// A selector config that presents a list of options in a drop-down list. With
+/// edit selector, the user can also choose to enter a value not present in the
+/// list
+///
+/// TODO: check me: selector and radio values must present a default value,
+/// which will be the value provided to the extcap binary for this argument.
 ///
 /// ```
 /// use rust_extcap::config::*;
@@ -136,22 +147,33 @@ generate_config_ext!(SelectorConfig);
 /// ```
 #[derive(Debug, TypedBuilder)]
 pub struct EditSelectorConfig {
+    /// The config number, a unique identifier for this config.
     pub config_number: u8,
+    /// The command line option that will be sent to this extcap program. For
+    /// example, if this field is `foobar`, and the corresponding value is `42`,
+    /// then `--foobar 42` will be sent to this program during the extcap
+    /// capture.
     #[builder(setter(into))]
     pub call: String,
+    /// The user-friendly label for the selector.
     #[builder(setter(into))]
     pub display: String,
+    /// The tooltip shown on when hovering over the UI element.
     #[builder(default, setter(strip_option, into))]
     pub tooltip: Option<String>,
+    /// If this is `Some`, a refresh button will be shown next to the selector,
+    /// allowing the user to refresh the list of available options to the return
+    /// value of this function.
     #[builder(default)]
     pub reload: Option<Box<dyn ReloadFn>>,
+    /// The placeholder string displayed if there is no value selected.
     #[builder(default, setter(strip_option, into))]
     pub placeholder: Option<String>,
+    /// The default list of options presented by this selector.
     #[builder(setter(into))]
     pub options: Vec<ConfigOptionValue>,
 }
 
-impl ConfigTrait for EditSelectorConfig {}
 impl<'a> Display for ExtcapFormatter<&'a EditSelectorConfig> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "arg {{number={}}}", self.0.config_number)?;
@@ -177,12 +199,12 @@ impl<'a> Display for ExtcapFormatter<&'a EditSelectorConfig> {
 
 generate_config_ext!(EditSelectorConfig);
 
-/// Option fields where the user may choose from one or more options. If parent
-/// is provided for the value items, the option fields for multicheck and
-/// selector are presented in a tree-like structure. selector and radio values
-/// must present a default value, which will be the value provided to the extcap
-/// binary for this argument. editselector option fields let the user select
-/// from a list of items or enter a custom value.
+// TODO: Add `group` to all elements.
+
+/// A list of radio buttons for the user to choose one value from.
+///
+/// TODO: check me: selector and radio values must present a default value,
+/// which will be the value provided to the extcap binary for this argument.
 ///
 /// ```
 /// use rust_extcap::config::*;
@@ -208,20 +230,29 @@ generate_config_ext!(EditSelectorConfig);
 /// ```
 #[derive(Debug, TypedBuilder)]
 pub struct RadioConfig {
+    /// The config number, a unique identifier for this config.
     pub config_number: u8,
+    /// The command line option that will be sent to this extcap program. For
+    /// example, if this field is `foobar`, and the corresponding value is `42`,
+    /// then `--foobar 42` will be sent to this program during the extcap
+    /// capture.
     #[builder(setter(into))]
     pub call: String,
+    /// The user-friendly label for the radio button.
     #[builder(setter(into))]
     pub display: String,
+    /// The tooltip shown on when hovering over the UI element.
     #[builder(default, setter(strip_option, into))]
     pub tooltip: Option<String>,
+    /// The (user-visible) name of the tab which this config belongs to.
+    /// TODO: Document what happens if this is None
     #[builder(default, setter(strip_option, into))]
     pub group: Option<String>,
+    /// The default list of options presented by this config.
     #[builder(setter(into))]
     pub options: Vec<ConfigOptionValue>,
 }
 
-impl ConfigTrait for RadioConfig {}
 impl<'a> Display for ExtcapFormatter<&'a RadioConfig> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "arg {{number={}}}", self.0.config_number)?;
@@ -244,12 +275,9 @@ impl<'a> Display for ExtcapFormatter<&'a RadioConfig> {
 
 generate_config_ext!(RadioConfig);
 
-/// Option fields where the user may choose from one or more options. If parent
-/// is provided for the value items, the option fields for multicheck and
-/// selector are presented in a tree-like structure. selector and radio values
-/// must present a default value, which will be the value provided to the extcap
-/// binary for this argument. editselector option fields let the user select
-/// from a list of items or enter a custom value.
+/// A tree of hierarchical check boxes that the user can select.
+///
+/// TODO: How are multiple values passed to command line? Is the flag repeated?
 ///
 /// ```
 /// use rust_extcap::config::*;
@@ -280,20 +308,29 @@ generate_config_ext!(RadioConfig);
 /// ```
 #[derive(Debug, TypedBuilder)]
 pub struct MultiCheckConfig {
+    /// The config number, a unique identifier for this config.
     pub config_number: u8,
+    /// The command line option that will be sent to this extcap program. For
+    /// example, if this field is `foobar`, and the corresponding value is `42`,
+    /// then `--foobar 42` will be sent to this program during the extcap
+    /// capture.
     #[builder(setter(into))]
     pub call: String,
+    /// The user-friendly label for the tree of checkboxes.
     #[builder(setter(into))]
     pub display: String,
+    /// The tooltip shown on when hovering over the UI element.
     #[builder(default, setter(strip_option, into))]
     pub tooltip: Option<String>,
+    /// The (user-visible) name of the tab which this config belongs to.
+    /// TODO: Document what happens if this is None
     #[builder(default, setter(strip_option, into))]
     pub group: Option<String>,
+    /// The default list of options presented by this config. This can be refreshed by the user using via the `reload` field.
     #[builder(setter(into))]
     pub options: Vec<MultiCheckValue>,
 }
 
-impl ConfigTrait for MultiCheckConfig {}
 impl<'a> Display for ExtcapFormatter<&'a MultiCheckConfig> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "arg {{number={}}}", self.0.config_number)?;
@@ -321,14 +358,25 @@ generate_config_ext!(MultiCheckConfig);
 /// the docs for [`MultiCheckConfig`] for usage details.
 #[derive(Debug, Clone, TypedBuilder)]
 pub struct MultiCheckValue {
+    /// The value for this option, which is the value that will be passed to the
+    /// extcap command line. For example, if `MultiCheckConfig.call` is `foo`,
+    /// and this field is `bar`, then `--foo bar` will be passed to this extcap
+    /// program during capturing.
     #[builder(setter(into))]
     value: String,
+    /// The user-friendly label for this check box.
     #[builder(setter(into))]
     display: String,
+    /// The default value for this check box, whether it is checked or not.
     #[builder(default = false)]
     default_value: bool,
+    /// Whether this checkbox is enabled or not.
+    /// TODO: Does this element support reload?
     #[builder(default = true)]
     enabled: bool,
+    /// The list of children checkboxes. Children check boxes will be indented
+    /// under this check box in the UI, but does not change how the value gets
+    /// sent to the extcap program.
     #[builder(default, setter(into))]
     children: Vec<MultiCheckValue>,
 }
@@ -373,21 +421,30 @@ impl<'a> Display for ExtcapFormatter<(&'a MultiCheckValue, u8, Option<&'a MultiC
 /// ```
 #[derive(Debug, TypedBuilder)]
 pub struct LongConfig {
+    /// The config number, a unique identifier for this config.
     pub config_number: u8,
+    /// The command line option that will be sent to this extcap program. For
+    /// example, if this field is `foobar`, and the corresponding value is `42`,
+    /// then `--foobar 42` will be sent to this program during the extcap
+    /// capture.
     #[builder(setter(into))]
     pub call: String,
+    /// The user-friendly label for the numeric field.
     #[builder(setter(into))]
     pub display: String,
+    /// The tooltip shown on when hovering over the UI element.
     #[builder(default, setter(strip_option, into))]
     pub tooltip: Option<String>,
+    /// The valid range of values for this config.
     #[builder(default, setter(strip_option))]
     pub range: Option<RangeInclusive<i64>>,
+    /// The default value for this config.
     pub default_value: i64,
+    /// The (user-visible) name of the tab which this config belongs to.
     #[builder(default, setter(strip_option, into))]
     pub group: Option<String>,
 }
 
-impl ConfigTrait for LongConfig {}
 impl<'a> Display for ExtcapFormatter<&'a LongConfig> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "arg {{number={}}}", self.0.config_number)?;
@@ -432,19 +489,30 @@ generate_config_ext!(LongConfig);
 /// ```
 #[derive(Debug, TypedBuilder)]
 pub struct IntegerConfig {
+    /// The config number, a unique identifier for this config.
     pub config_number: u8,
+    /// The command line option that will be sent to this extcap program. For
+    /// example, if this field is `foobar`, and the corresponding value is `42`,
+    /// then `--foobar 42` will be sent to this program during the extcap
+    /// capture.
     #[builder(setter(into))]
     pub call: String,
+    /// The user-friendly label for the numeric field.
     #[builder(setter(into))]
     pub display: String,
+    /// The tooltip shown on when hovering over the UI element.
     #[builder(default, setter(strip_option, into))]
     pub tooltip: Option<String>,
+    /// The valid range of values for this config.
     #[builder(default, setter(strip_option))]
     pub range: Option<RangeInclusive<i32>>,
+    /// The default value for this config.
     pub default_value: i32,
+    /// The (user-visible) name of the tab which this config belongs to.
+    #[builder(default, setter(strip_option, into))]
+    pub group: Option<String>,
 }
 
-impl ConfigTrait for IntegerConfig {}
 impl<'a> Display for ExtcapFormatter<&'a IntegerConfig> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "arg {{number={}}}", self.0.config_number)?;
@@ -458,6 +526,9 @@ impl<'a> Display for ExtcapFormatter<&'a IntegerConfig> {
         }
         write!(f, "{{default={}}}", self.0.default_value)?;
         write!(f, "{{type=integer}}")?;
+        if let Some(group) = &self.0.group {
+            write!(f, "{{group={}}}", group)?;
+        }
         writeln!(f)?;
         Ok(())
     }
@@ -486,19 +557,30 @@ generate_config_ext!(IntegerConfig);
 /// ```
 #[derive(Debug, TypedBuilder)]
 pub struct UnsignedConfig {
+    /// The config number, a unique identifier for this config.
     pub config_number: u8,
+    /// The command line option that will be sent to this extcap program. For
+    /// example, if this field is `foobar`, and the corresponding value is `42`,
+    /// then `--foobar 42` will be sent to this program during the extcap
+    /// capture.
     #[builder(setter(into))]
     pub call: String,
+    /// The user-friendly label for the numeric field.
     #[builder(setter(into))]
     pub display: String,
+    /// The tooltip shown on when hovering over the UI element.
     #[builder(default, setter(strip_option, into))]
     pub tooltip: Option<String>,
+    /// The valid range of values for this config.
     #[builder(default, setter(strip_option, into))]
     pub range: Option<RangeInclusive<u32>>,
+    /// The default value for this config.
     pub default_value: u32,
+    /// The (user-visible) name of the tab which this config belongs to.
+    #[builder(default, setter(strip_option, into))]
+    pub group: Option<String>,
 }
 
-impl ConfigTrait for UnsignedConfig {}
 impl<'a> Display for ExtcapFormatter<&'a UnsignedConfig> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "arg {{number={}}}", self.0.config_number)?;
@@ -512,6 +594,9 @@ impl<'a> Display for ExtcapFormatter<&'a UnsignedConfig> {
         }
         write!(f, "{{default={}}}", self.0.default_value)?;
         write!(f, "{{type=unsigned}}")?;
+        if let Some(group) = &self.0.group {
+            write!(f, "{{group={}}}", group)?;
+        }
         writeln!(f)?;
         Ok(())
     }
@@ -540,21 +625,30 @@ generate_config_ext!(UnsignedConfig);
 /// ```
 #[derive(Debug, TypedBuilder)]
 pub struct DoubleConfig {
+    /// The config number, a unique identifier for this config.
     pub config_number: u8,
+    /// The command line option that will be sent to this extcap program. For
+    /// example, if this field is `foobar`, and the corresponding value is `42`,
+    /// then `--foobar 42` will be sent to this program during the extcap
+    /// capture.
     #[builder(setter(into))]
     pub call: String,
+    /// The user-friendly label for the numeric field.
     #[builder(setter(into))]
     pub display: String,
+    /// The tooltip shown on when hovering over the UI element.
     #[builder(default, setter(strip_option, into))]
     pub tooltip: Option<String>,
+    /// The valid range of values for this config.
     #[builder(default, setter(strip_option))]
     pub range: Option<RangeInclusive<f64>>,
+    /// The default value for this config.
     pub default_value: f64,
+    /// The (user-visible) name of the tab which this config belongs to.
     #[builder(default, setter(strip_option, into))]
     pub group: Option<String>,
 }
 
-impl ConfigTrait for DoubleConfig {}
 impl<'a> Display for ExtcapFormatter<&'a DoubleConfig> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "arg {{number={}}}", self.0.config_number)?;
@@ -578,7 +672,7 @@ impl<'a> Display for ExtcapFormatter<&'a DoubleConfig> {
 
 generate_config_ext!(DoubleConfig);
 
-/// This provides a field for entering a text value.
+/// A field for entering a text value.
 ///
 /// ```
 /// use rust_extcap::config::*;
@@ -600,30 +694,45 @@ generate_config_ext!(DoubleConfig);
 /// ```
 #[derive(Debug, TypedBuilder)]
 pub struct StringConfig {
+    /// The config number, a unique identifier for this config.
     pub config_number: u8,
+    /// The command line option that will be sent to this extcap program. For
+    /// example, if this field is `foobar`, and the corresponding value is `42`,
+    /// then `--foobar 42` will be sent to this program during the extcap
+    /// capture.
     #[builder(setter(into))]
     pub call: String,
+    /// The user-friendly label for the text field.
     #[builder(setter(into))]
     pub display: String,
+    /// The tooltip shown on when hovering over the UI element.
     #[builder(default, setter(strip_option, into))]
     pub tooltip: Option<String>,
+    /// The placeholder string displayed if there is no value in the text field.
     #[builder(default, setter(strip_option, into))]
     pub placeholder: Option<String>,
+    /// Whether a value is required for this config.
+    ///
+    /// TODO: is required available for other fields?
     #[builder(default = false)]
     pub required: bool,
 
-    /// Allows to provide a regular expression string, which is used to check
-    /// the user input for validity beyond normal data type or range checks.
+    /// A regular expression string used to check the user input for validity.
     /// Despite what the Wireshark documentation says, back-slashes in this
     /// string do not need to be escaped. Just remember to use a Rust raw string
     /// (e.g. `r"\d\d\d\d"`).
     #[builder(default, setter(strip_option, into))]
     pub validation: Option<String>,
+    /// Whether to save the value of this config. If true, the value will be
+    /// saved by Wireshark, and will be automatically populated next time that
+    /// interface is selected by the user.
+    ///
+    /// TODO: Check whether the default value for this is true or false TODO:
+    /// Check whether other configs support this as well.
     #[builder(default = false)]
     pub save: bool,
 }
 
-impl ConfigTrait for StringConfig {}
 impl<'a> Display for ExtcapFormatter<&'a StringConfig> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "arg {{number={}}}", self.0.config_number)?;
@@ -652,8 +761,8 @@ impl<'a> Display for ExtcapFormatter<&'a StringConfig> {
 
 generate_config_ext!(StringConfig);
 
-/// Lets the user provide a masked string to the capture. Password strings are
-/// not saved with other capture settings.
+/// A field for entering text value, but with its value masked in the user
+/// interface. The value of a password field is not saved by Wireshark.
 ///
 /// ```
 /// use rust_extcap::config::*;
@@ -671,22 +780,34 @@ generate_config_ext!(StringConfig);
 /// ```
 #[derive(Debug, TypedBuilder)]
 pub struct PasswordConfig {
+    /// The config number, a unique identifier for this config.
     pub config_number: u8,
+    /// The command line option that will be sent to this extcap program. For
+    /// example, if this field is `foobar`, and the corresponding value is `42`,
+    /// then `--foobar 42` will be sent to this program during the extcap
+    /// capture.
     #[builder(setter(into))]
     pub call: String,
+    /// The user-friendly label for the password field.
     #[builder(setter(into))]
     pub display: String,
+    /// The tooltip shown on when hovering over the UI element.
     #[builder(default, setter(strip_option, into))]
     pub tooltip: Option<String>,
+    /// The placeholder string displayed if there is no value in the text field.
     #[builder(default, setter(strip_option, into))]
     pub placeholder: Option<String>,
+    /// Whether a value is required for this config.
     #[builder(default = false)]
     pub required: bool,
+    /// A regular expression string used to check the user input for validity.
+    /// Despite what the Wireshark documentation says, back-slashes in this
+    /// string do not need to be escaped. Just remember to use a Rust raw string
+    /// (e.g. `r"\d\d\d\d"`).
     #[builder(default, setter(strip_option, into))]
     pub validation: Option<String>,
 }
 
-impl ConfigTrait for PasswordConfig {}
 impl<'a> Display for ExtcapFormatter<&'a PasswordConfig> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "arg {{number={}}}", self.0.config_number)?;
@@ -712,7 +833,7 @@ impl<'a> Display for ExtcapFormatter<&'a PasswordConfig> {
 
 generate_config_ext!(PasswordConfig);
 
-/// A time value displayed as a date/time editor.
+/// A config that is displayed as a date/time editor.
 ///
 /// ```
 /// use rust_extcap::config::*;
@@ -731,18 +852,25 @@ generate_config_ext!(PasswordConfig);
 /// ```
 #[derive(Debug, TypedBuilder)]
 pub struct TimestampConfig {
+    /// The config number, a unique identifier for this config.
     pub config_number: u8,
+    /// The command line option that will be sent to this extcap program. For
+    /// example, if this field is `foobar`, and the corresponding value is `42`,
+    /// then `--foobar 42` will be sent to this program during the extcap
+    /// capture.
     #[builder(setter(into))]
     pub call: String,
+    /// The user-friendly label for the config.
     #[builder(setter(into))]
     pub display: String,
+    /// The tooltip shown on when hovering over the UI element.
     #[builder(default, setter(strip_option, into))]
     pub tooltip: Option<String>,
+    /// The (user-visible) name of the tab which this config belongs to.
     #[builder(setter(into))]
     pub group: String,
 }
 
-impl ConfigTrait for TimestampConfig {}
 impl<'a> Display for ExtcapFormatter<&'a TimestampConfig> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "arg {{number={}}}", self.0.config_number)?;
@@ -760,9 +888,7 @@ impl<'a> Display for ExtcapFormatter<&'a TimestampConfig> {
 
 generate_config_ext!(TimestampConfig);
 
-/// Lets the user provide a file path. If mustexist=true is provided, the GUI
-/// shows the user a dialog for selecting a file. When mustexist=false is used,
-/// the GUI shows the user a file dialog for saving a file.
+/// Lets the user provide a file path.
 ///
 /// ```
 /// use rust_extcap::config::*;
@@ -781,20 +907,29 @@ generate_config_ext!(TimestampConfig);
 /// ```
 #[derive(Debug, TypedBuilder)]
 pub struct FileSelectConfig {
+    /// The config number, a unique identifier for this config.
     pub config_number: u8,
+    /// The command line option that will be sent to this extcap program. For
+    /// example, if this field is `foobar`, and the corresponding value is `42`,
+    /// then `--foobar 42` will be sent to this program during the extcap
+    /// capture.
     #[builder(setter(into))]
     pub call: String,
+    /// The user-friendly label for the file selector.
     #[builder(setter(into))]
     pub display: String,
+    /// The tooltip shown on when hovering over the UI element.
     #[builder(default, setter(strip_option, into))]
     pub tooltip: Option<String>,
+    /// The (user-visible) name of the tab which this config belongs to.
     #[builder(default, setter(strip_option, into))]
     pub group: Option<String>,
+    /// If true is provided, the GUI shows the user a dialog for selecting an
+    /// existing file. If false, the GUI shows a file dialog for saving a file.
     #[builder(default = true)]
     pub must_exist: bool,
 }
 
-impl ConfigTrait for FileSelectConfig {}
 impl<'a> Display for ExtcapFormatter<&'a FileSelectConfig> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "arg {{number={}}}", self.0.config_number)?;
@@ -815,7 +950,7 @@ impl<'a> Display for ExtcapFormatter<&'a FileSelectConfig> {
 
 generate_config_ext!(FileSelectConfig);
 
-/// This provides the possibility to set a true/false value.
+/// A checkbox configuration with a true/false value.
 ///
 /// ```
 /// use rust_extcap::config::*;
@@ -833,18 +968,31 @@ generate_config_ext!(FileSelectConfig);
 /// ```
 #[derive(Debug, TypedBuilder)]
 pub struct BooleanConfig {
+    /// The config number, a unique identifier for this config.
     pub config_number: u8,
+    /// The command line option that will be sent to this extcap program. For
+    /// example, if this field is `foobar`, and the corresponding value is `42`,
+    /// then `--foobar 42` will be sent to this program during the extcap
+    /// capture.
     #[builder(setter(into))]
     pub call: String,
+    /// The user-friendly label for the check box.
     #[builder(setter(into))]
     pub display: String,
+    /// The tooltip shown on when hovering over the UI element.
     #[builder(default, setter(strip_option, into))]
     pub tooltip: Option<String>,
+    /// The default value for this config.
     #[builder(default = false)]
     pub default_value: bool,
+    /// If true, always include the command line flag (e.g. either `--foo true`
+    /// or `--foo false`). If false (the default), the flag is provided to the
+    /// command without a value if this is checked (`--foo`), or omitted from
+    /// the command line arguments if unchecked.
+    #[builder(default = false)]
+    pub always_include_option: bool,
 }
 
-impl ConfigTrait for BooleanConfig {}
 impl<'a> Display for ExtcapFormatter<&'a BooleanConfig> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "arg {{number={}}}", self.0.config_number)?;
@@ -856,7 +1004,11 @@ impl<'a> Display for ExtcapFormatter<&'a BooleanConfig> {
         if self.0.default_value {
             write!(f, "{{default=true}}")?;
         }
-        write!(f, "{{type=boolean}}")?;
+        if self.0.always_include_option {
+            write!(f, "{{type=boolean}}")?;
+        } else {
+            write!(f, "{{type=boolflag}}")?;
+        }
         writeln!(f)?;
         Ok(())
     }
@@ -864,69 +1016,27 @@ impl<'a> Display for ExtcapFormatter<&'a BooleanConfig> {
 
 generate_config_ext!(BooleanConfig);
 
-/// This provides the possibility to set a true/false value. boolflag values
-/// will only appear in the command line if set to true, otherwise they will not
-/// be added to the command-line call for the extcap interface.
-///
-/// ```
-/// use rust_extcap::config::*;
-///
-/// let config = BoolFlagConfig::builder()
-///     .config_number(2)
-///     .call("verify")
-///     .display("Verify")
-///     .tooltip("Verify package content")
-///     .build();
-/// assert_eq!(
-///     format!("{}", ExtcapFormatter(&config)),
-///     "arg {number=2}{call=--verify}{display=Verify}{tooltip=Verify package content}{type=boolflag}\n"
-/// );
-/// ```
-// TODO: Combine this with BooleanConfig
-#[derive(Debug, TypedBuilder)]
-pub struct BoolFlagConfig {
-    pub config_number: u8,
-    #[builder(setter(into))]
-    pub call: String,
-    #[builder(setter(into))]
-    pub display: String,
-    #[builder(default, setter(strip_option, into))]
-    pub tooltip: Option<String>,
-    #[builder(default = false)]
-    pub default_value: bool,
-}
-
-impl ConfigTrait for BoolFlagConfig {}
-impl<'a> Display for ExtcapFormatter<&'a BoolFlagConfig> {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "arg {{number={}}}", self.0.config_number)?;
-        write!(f, "{{call=--{}}}", self.0.call)?;
-        write!(f, "{{display={}}}", self.0.display)?;
-        if let Some(tooltip) = &self.0.tooltip {
-            write!(f, "{{tooltip={tooltip}}}")?;
-        }
-        if self.0.default_value {
-            write!(f, "{{default=true}}")?;
-        }
-        write!(f, "{{type=boolflag}}")?;
-        writeln!(f)?;
-        Ok(())
-    }
-}
-
-generate_config_ext!(BoolFlagConfig);
-
+/// An option for [`SelectorConfig`], [`EditSelectorConfig`], and
+/// [`RadioConfig`].
 #[derive(Clone, Debug, TypedBuilder)]
 pub struct ConfigOptionValue {
+    /// The value of this option. If this option is selected, the value will be
+    /// passed to the command line. For example, if [`SelectorConfig.call`] is
+    /// `foo`, and this field is `bar`, then `--foo bar` will be passed to this
+    /// extcap program.
     #[builder(setter(into))]
     value: String,
+    /// The user-friendly label for this option.
     #[builder(setter(into))]
     display: String,
+    /// Whether this option is selected as the default. For each config there
+    /// should only be one selected default.
     #[builder(default = false)]
     default: bool,
 }
 
 impl ConfigOptionValue {
+    /// Prints out the config to stdout for Wireshark's consumption.
     pub fn print_config(&self, number: u8) {
         (self, number).print_config()
     }
@@ -944,9 +1054,26 @@ impl<'a> Display for ExtcapFormatter<&'a (&ConfigOptionValue, u8)> {
     }
 }
 
-pub trait ConfigExtGenerated: PrintConfig {
+/// Represents a config, which is a UI element shown in Wireshark that allows
+/// the user to customize the capture interface.
+///
+/// Each interface can have custom options that are valid for this interface
+/// only. Those config options are specified on the command line when running
+/// the actual capture. To allow an end-user to specify certain options, such
+/// options may be provided using the extcap config argument.
+///
+/// To share which options are available for an interface, the extcap responds
+/// to the command --extcap-config, which shows all the available options (aka
+/// additional command line options).
+///
+/// Those options are used to build a configuration dialog for the interface.
+pub trait ConfigTrait: PrintConfig + Any {
+    /// The command line option that will be sent to this extcap program. For
+    /// example, if this field is `foobar`, and the corresponding value is `42`,
+    /// then `--foobar 42` will be sent to this program during the extcap
+    /// capture.
     fn call(&self) -> &str;
+
+    /// Returns this trait as an `Any` type.
     fn as_any(&self) -> &dyn Any;
 }
-
-pub trait ConfigTrait: ConfigExtGenerated {}

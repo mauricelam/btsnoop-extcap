@@ -7,11 +7,13 @@
 //! * <https://www.wireshark.org/docs/man-pages/extcap.html>
 //! * <https://gitlab.com/wireshark/wireshark/-/blob/master/doc/extcap_example.py>
 
+#![deny(missing_docs)]
+
 use clap::Args;
 use config::{ConfigTrait, SelectorConfig};
 use controls::ToolbarControl;
 use interface::{Interface, Metadata};
-use std::{fmt::Display, path::PathBuf};
+use std::{fmt::Display, path::PathBuf, any::Any};
 use thiserror::Error;
 
 pub mod config;
@@ -290,6 +292,9 @@ pub trait ExtcapApplication {
         Ok(())
     }
 
+    /// Prints the DLT to stdout for consumption by Wireshark. The default
+    /// implementation provided takes the DLT from the interfaces returned from
+    /// [`interfaces`][Self::interfaces] and prints out the correct one.
     fn print_dlt(&self, interface: &str) -> Result<(), PrintDltError> {
         self.interfaces()
             .iter()
@@ -326,7 +331,12 @@ pub struct ExtcapFormatter<T>(pub T)
 where
     Self: Display;
 
+/// Elements that has a printable extcap config. See the documentation for
+/// [`ExtcapFormatter`] for details.
 pub trait PrintConfig {
+    // TODO: fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+
+    /// Prints the configuration to stdout.
     fn print_config(&self);
 }
 
