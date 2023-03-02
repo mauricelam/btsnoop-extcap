@@ -41,11 +41,8 @@ impl std::fmt::Debug for dyn ReloadFn {
 }
 
 /// A selector config UI element that allows the user to select an option from a
-/// drop-down list.
-///
-/// TODO: Double check this: selector and radio values must present a default
-/// value, which will be the value provided to the extcap binary for this
-/// argument.
+/// drop-down list. The list of options should have default=true on exactly one
+/// item.
 ///
 /// ```
 /// use rust_extcap::config::*;
@@ -123,9 +120,6 @@ generate_config_ext!(SelectorConfig);
 /// A selector config that presents a list of options in a drop-down list. With
 /// edit selector, the user can also choose to enter a value not present in the
 /// list
-///
-/// TODO: check me: selector and radio values must present a default value,
-/// which will be the value provided to the extcap binary for this argument.
 ///
 /// ```
 /// use rust_extcap::config::*;
@@ -205,10 +199,8 @@ generate_config_ext!(EditSelectorConfig);
 
 // TODO: Add `group` to all elements.
 
-/// A list of radio buttons for the user to choose one value from.
-///
-/// TODO: check me: selector and radio values must present a default value,
-/// which will be the value provided to the extcap binary for this argument.
+/// A list of radio buttons for the user to choose one value from. The list of
+/// options should have exactly one item with default=true.
 ///
 /// ```
 /// use rust_extcap::config::*;
@@ -281,7 +273,10 @@ generate_config_ext!(RadioConfig);
 
 /// A tree of hierarchical check boxes that the user can select.
 ///
-/// TODO: How are multiple values passed to command line? Is the flag repeated?
+/// The values are passed comma-separated into the extcap command line. For
+/// example, if the check boxes for `if1`, `if2a`, and `if2b` are checked in the
+/// example below, then `--multi if1,if2a,if2b` will be passed in the command
+/// line.
 ///
 /// ```
 /// use rust_extcap::config::*;
@@ -309,6 +304,13 @@ generate_config_ext!(RadioConfig);
 ///         "value {arg=3}{value=if2b}{display=Remote2B}{default=true}{enabled=true}{parent=if2}\n"
 ///     )
 /// );
+/// ```
+///
+/// To parse those values as a `vec`, you can use the `value_delimiter` option in `clap`.
+///
+/// ```ignore
+/// #[arg(long, value_delimiter = ',')]
+/// multi: Vec<String>,
 /// ```
 #[derive(Debug, TypedBuilder)]
 pub struct MultiCheckConfig {
@@ -731,9 +733,8 @@ pub struct StringConfig {
     /// saved by Wireshark, and will be automatically populated next time that
     /// interface is selected by the user.
     ///
-    /// TODO: Check whether the default value for this is true or false TODO:
-    /// Check whether other configs support this as well.
-    #[builder(default = false)]
+    /// TODO: Check whether other configs support this as well.
+    #[builder(default = true)]
     pub save: bool,
 }
 
@@ -754,9 +755,7 @@ impl<'a> Display for ExtcapFormatter<&'a StringConfig> {
         if let Some(validation) = &self.0.validation {
             write!(f, "{{validation={}}}", validation)?;
         }
-        if !self.0.save {
-            write!(f, "{{save=false}}")?;
-        }
+        write!(f, "{{save={}}}", self.0.save)?;
         write!(f, "{{type=string}}")?;
         writeln!(f)?;
         Ok(())

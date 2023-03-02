@@ -236,7 +236,9 @@ pub enum ExtcapError {
     /// instructions using the [`print_installation_instructions`] function,
     /// which will tell the user create a symlink from the Wireshark extcap
     /// directory to the installed binary location.
-    #[error("Missing input extcap command. Maybe you need to install this with Wireshark instead?")]
+    #[error(
+        "Missing input extcap command. Maybe you need to install this with Wireshark instead?"
+    )]
     NotExtcapInput,
 
     /// Error when listing config. See [`ListConfigError`].
@@ -252,13 +254,42 @@ pub enum ExtcapError {
     PrintDltError(#[from] PrintDltError),
 }
 
-/// Prints the installation instructions to stdout. This is useful to show if
-/// the program is used in unexpected ways (e.g. not as an extcap program), so
-/// users can easily install with a copy-pastable command.
+/// Get the installation instructions. This is useful to show if the program is
+/// used in unexpected ways (e.g. not as an extcap program), so users can easily
+/// install with a copy-pastable command.
 ///
-/// TODO: Include the printed message in the docs.
-pub fn print_installation_instructions() {
-    // TODO
+/// ```
+/// # use indoc::formatdoc;
+/// # let exe = std::env::current_exe().unwrap();
+/// # let executable_path = exe.to_string_lossy();
+/// # let exe_name = exe.file_name().unwrap().to_string_lossy();
+/// assert_eq!(
+///     rust_extcap::installation_instructions(),
+///     formatdoc!{"
+///         This is an extcap plugin meant to be used with Wireshark or tshark.
+///         To install this plugin for use with Wireshark, symlink or copy this executable \
+///         to your Wireshark extcap directory
+///           mkdir -p ~/.config/wireshark/extcap/ && ln -s \"{executable_path}\" \"~/.config/wireshark/extcap/{exe_name}\"\
+///     "}
+/// )
+/// ```
+pub fn installation_instructions() -> String {
+    let install_cmd = std::env::current_exe()
+        .ok()
+        .and_then(|exe| {
+            let path = exe.to_string_lossy();
+            let name = exe.file_name()?.to_string_lossy();
+            Some(format!("\n  mkdir -p ~/.config/wireshark/extcap/ && ln -s \"{path}\" \"~/.config/wireshark/extcap/{name}\""))
+        })
+        .unwrap_or_default();
+    format!(
+        concat!(
+            "This is an extcap plugin meant to be used with Wireshark or tshark.\n",
+            "To install this plugin for use with Wireshark, symlink or copy this executable ",
+            "to your Wireshark extcap directory{}",
+        ),
+        install_cmd
+    )
 }
 
 /// Error printing DLTs to Wireshark.
@@ -430,7 +461,10 @@ pub trait ExtcapApplication {
             .as_any()
             .downcast_ref::<SelectorConfig>()
             .ok_or_else(|| ReloadConfigError::UnsupportedConfig(String::from(config)))?;
-        let reload_fn = selector_config.reload.as_ref().ok_or_else(|| ReloadConfigError::UnsupportedConfig(String::from(config)))?;
+        let reload_fn = selector_config
+            .reload
+            .as_ref()
+            .ok_or_else(|| ReloadConfigError::UnsupportedConfig(String::from(config)))?;
         for opt in reload_fn() {
             opt.print_config(selector_config.config_number);
         }

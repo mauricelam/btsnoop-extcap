@@ -67,23 +67,16 @@ fn config() {
 #[test]
 fn config_reload_options() {
     let mut cmd = Command::cargo_bin("extcap-example").unwrap();
-    cmd.args([
-        "--extcap-interface",
-        "rs-example1",
-        "--extcap-config",
-        "--extcap-reload-option",
-        "remote",
-        "--verify",
-        "true",
-    ]);
-    cmd.assert()
-        .success()
-        .stdout(predicate::str::diff(concat!(
-            "value {arg=3}{value=if1}{display=Remote Interface 1}{default=false}\n",
-            "value {arg=3}{value=if2}{display=Remote Interface 2}{default=true}\n",
-            "value {arg=3}{value=if3}{display=Remote Interface 3}{default=false}\n",
-            "value {arg=3}{value=if4}{display=Remote Interface 4}{default=false}\n",
-        )));
+    cmd.args(["--extcap-interface", "rs-example1"])
+        .arg("--extcap-config")
+        .args(["--extcap-reload-option", "remote"])
+        .arg("--verify");
+    cmd.assert().success().stdout(predicate::str::diff(concat!(
+        "value {arg=3}{value=if1}{display=Remote Interface 1}{default=false}\n",
+        "value {arg=3}{value=if2}{display=Remote Interface 2}{default=true}\n",
+        "value {arg=3}{value=if3}{display=Remote Interface 3}{default=false}\n",
+        "value {arg=3}{value=if4}{display=Remote Interface 4}{default=false}\n",
+    )));
 }
 
 #[test]

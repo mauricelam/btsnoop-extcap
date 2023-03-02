@@ -1,4 +1,4 @@
-use clap::{builder::ArgAction, Parser, ValueEnum};
+use clap::{Parser, ValueEnum};
 use lazy_static::lazy_static;
 use log::debug;
 use pcap_file::{
@@ -242,7 +242,7 @@ lazy_static! {
                 SelectorControlOption::builder().value("2").display("2s").build(),
                 SelectorControlOption::builder().value("3").display("3s").build(),
                 SelectorControlOption::builder().value("4").display("4s").build(),
-                SelectorControlOption::builder().value("5").display("5s").build(),
+                SelectorControlOption::builder().value("5").display("5s").default(true).build(),
                 SelectorControlOption::builder().value("60").display( "60s").build(),
             ],
         },
@@ -340,7 +340,7 @@ struct AppArgs {
     extcap: rust_extcap::ExtcapArgs,
 
     /// Demonstrates a verification bool flag
-    #[arg(long, action = ArgAction::Set, default_value_t = false)]
+    #[arg(long)]
     verify: bool,
 
     /// Demonstrates an integer variable
@@ -371,8 +371,8 @@ struct AppArgs {
     d2test: Option<String>,
     #[arg(long)]
     radio: Option<String>,
-    #[arg(long)]
-    multi: Option<String>,
+    #[arg(long, value_delimiter = ',')]
+    multi: Vec<String>,
 }
 
 pub struct ExampleExtcapApplication {
