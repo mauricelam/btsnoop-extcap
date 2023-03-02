@@ -103,6 +103,9 @@ impl<'a> Display for ExtcapFormatter<&'a SelectorConfig> {
         if let Some(tooltip) = &self.0.tooltip {
             write!(f, "{{tooltip={tooltip}}}")?;
         }
+        if let Some(placeholder) = &self.0.placeholder {
+            write!(f, "{{placeholder={placeholder}}}")?;
+        }
         write!(f, "{{type=selector}}")?;
         if self.0.reload.is_some() {
             write!(f, "{{reload=true}}")?;
