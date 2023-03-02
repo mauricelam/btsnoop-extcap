@@ -8,7 +8,7 @@ fn interfaces() {
     cmd.args(["--extcap-interfaces"]);
     cmd.assert()
         .success()
-        .stdout(predicate::str::contains(concat!(
+        .stdout(predicate::str::diff(concat!(
             "extcap {version=0.1.0}{help=http://www.wireshark.org}{display=Rust Example extcap interface}\n",
             "interface {value=rs-example1}{display=Rust Example interface 1 for extcap}\n",
             "interface {value=rs-example2}{display=Rust Example interface 2 for extcap}\n",
@@ -34,10 +34,10 @@ fn config() {
     cmd.args(["--extcap-interface", "rs-example1", "--extcap-config"]);
     cmd.assert()
         .success()
-        .stdout(predicate::str::contains(concat!(
+        .stdout(predicate::str::diff(concat!(
             "arg {number=0}{call=--delay}{display=Time delay}{tooltip=Time delay between packages}{range=1,15}{default=5}{type=integer}\n",
             "arg {number=1}{call=--message}{display=Message}{tooltip=Package message content}{placeholder=Please enter a message here ...}{required=true}{type=string}\n",
-            "arg {number=2}{call=--verify}{display=Verify}{tooltip=Verify package content}{default=true}{type=boolean}\n",
+            "arg {number=2}{call=--verify}{display=Verify}{tooltip=Verify package content}{default=true}{type=boolflag}\n",
             "arg {number=3}{call=--remote}{display=Remote Channel}{tooltip=Remote Channel Selector}{placeholder=Load interfaces ...}{type=selector}{reload=true}\n",
             "value {arg=3}{value=if1}{display=Remote1}{default=true}\n",
             "value {arg=3}{value=if2}{display=Remote2}{default=false}\n",
@@ -78,7 +78,7 @@ fn config_reload_options() {
     ]);
     cmd.assert()
         .success()
-        .stdout(predicate::str::contains(concat!(
+        .stdout(predicate::str::diff(concat!(
             "value {arg=3}{value=if1}{display=Remote Interface 1}{default=false}\n",
             "value {arg=3}{value=if2}{display=Remote Interface 2}{default=true}\n",
             "value {arg=3}{value=if3}{display=Remote Interface 3}{default=false}\n",
@@ -90,7 +90,7 @@ fn config_reload_options() {
 fn print_dlt() {
     let mut cmd = Command::cargo_bin("extcap-example").unwrap();
     cmd.args(["--extcap-interface", "rs-example1", "--extcap-dlts"]);
-    cmd.assert().success().stdout(predicate::str::contains(
+    cmd.assert().success().stdout(predicate::str::diff(
         "dlt {number=147}{name=USER0}{display=Demo Implementation for Extcap}",
     ));
 }

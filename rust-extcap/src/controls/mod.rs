@@ -1,4 +1,4 @@
-//! Structus to define the controls for the extcap program. There are two
+//! Module to interact with the controls for the extcap program. There are two
 //! aspects of "controls" handled in this module:
 //!
 //! 1. The toolbar controls in the Wireshark interface, when the user selects
@@ -21,31 +21,6 @@ use {asynchronous::ExtcapControlSenderTrait as _, synchronous::ExtcapControlSend
 
 pub mod asynchronous;
 pub mod synchronous;
-
-#[derive(Clone, Debug, TypedBuilder)]
-pub struct ControlValue {
-    #[builder(setter(into))]
-    pub value: String,
-    #[builder(setter(into))]
-    pub display: String,
-    #[builder(default)]
-    pub default: bool,
-}
-
-impl ControlValue {
-    pub fn print_config<C: ToolbarControl>(&self, control: &C) {
-        print!(
-            "value {{control={}}}{{value={}}}{{display={}}}",
-            control.control_number(),
-            self.value,
-            self.display,
-        );
-        if self.default {
-            print!("{{default=true}}");
-        }
-        println!();
-    }
-}
 
 /// A `ToolbarControl` that can be enabled or disabled.
 pub trait EnableableControl: ToolbarControl {
@@ -93,6 +68,7 @@ pub trait ControlWithLabel: ToolbarControl {
 pub struct BooleanControl {
     /// The control number, a unique identifier for this control.
     pub control_number: u8,
+    /// The user-visible label for the check box.
     #[builder(setter(into))]
     pub display: String,
     /// Tooltip shown when hovering over the UI element.
@@ -147,6 +123,7 @@ impl ToolbarControl for BooleanControl {
 pub struct ButtonControl {
     /// The control number, a unique identifier for this control.
     pub control_number: u8,
+    /// The user-visible label for the button.
     #[builder(setter(into))]
     pub display: String,
     /// Tooltip shown when hovering over the UI element.
@@ -232,12 +209,13 @@ impl Display for ExtcapFormatter<&LoggerControl> {
     }
 }
 
-/// This button opens the help page, if configured. This role has no
-/// controls and will not be used in communication.
+/// A button in the toolbar that opens the help URL when clicked. The URL it
+/// opens is defined in [`Metadata::help_url`][crate::interface::Metadata::help_url].
 #[derive(Debug, TypedBuilder)]
 pub struct HelpButtonControl {
     /// The control number, a unique identifier for this control.
     pub control_number: u8,
+    /// Label of the button that opens the help URL.
     #[builder(setter(into))]
     pub display: String,
     /// Tooltip shown when hovering over the UI element.
@@ -264,13 +242,13 @@ impl Display for ExtcapFormatter<&HelpButtonControl> {
     }
 }
 
-/// This button will restore all control values to default. This role has no
-/// controls and will not be used in communication. The button is only
+/// This button will restore all control values to default. The button is only
 /// enabled when not capturing.
 #[derive(Debug, TypedBuilder)]
 pub struct RestoreButtonControl {
     /// The control number, a unique identifier for this control.
     pub control_number: u8,
+    /// Label of the button.
     #[builder(setter(into))]
     pub display: String,
     /// Tooltip shown when hovering over the UI element.
@@ -306,13 +284,16 @@ impl Display for ExtcapFormatter<&RestoreButtonControl> {
 pub struct SelectorControl {
     /// The control number, a unique identifier for this control.
     pub control_number: u8,
+    /// The user-visible label of this selector, displayed next to the drop down
+    /// box.
     #[builder(setter(into))]
     pub display: String,
     /// Tooltip shown when hovering over the UI element.
     #[builder(default, setter(strip_option, into))]
     pub tooltip: Option<String>,
+    /// The list of options available for selection in this selector.
     #[builder(default, setter(into))]
-    pub options: Vec<ControlValue>,
+    pub options: Vec<SelectorControlOption>,
 }
 
 impl SelectorControl {
@@ -373,33 +354,71 @@ impl Display for ExtcapFormatter<&SelectorControl> {
         Ok(())
     }
 }
-/// A text edit line with the possibility to set a string (or any value which can
-/// be represented in a string).
+
+/// An option in a [`SelectorControl`].
+#[derive(Clone, Debug, TypedBuilder)]
+pub struct SelectorControlOption {
+    /// The value that is sent in the payload of the [`ControlPacket`] when this
+    /// option is selected.
+    #[builder(setter(into))]
+    pub value: String,
+    /// The user visible label for this option.
+    #[builder(setter(into))]
+    pub display: String,
+    /// Whether this option is selected as the default.
+    #[builder(default)]
+    pub default: bool,
+}
+
+impl SelectorControlOption {
+    /// Prints the extcap config for this option for Wireshark's consumption.
+    /// See the documentation for [`ExtcapFormatter`] for details.
+    pub fn print_config<C: ToolbarControl>(&self, control: &C) {
+        print!(
+            "value {{control={}}}{{value={}}}{{display={}}}",
+            control.control_number(),
+            self.value,
+            self.display,
+        );
+        if self.default {
+            print!("{{default=true}}");
+        }
+        println!();
+    }
+}
+
+/// A text field toolbar control element.
 ///
-/// The extcap utility can set a default string value at startup, and can change
-/// (set) and receive value changes while capturing. When starting a capture the
-/// GUI will send the value if different from the default value.
+/// Maximum length is accepted by a `StringControl` is 32767 bytes.
 ///
-/// The payload is a string with the value. Maximum length is 32767 bytes.
-///
-/// Valid Commands for control: Set value, Enable, Disable.
-///
-/// The element VALIDATION allows to provide a regular expression string, which
-/// is used to check the user input for validity beyond normal data type or
-/// range checks. Back-slashes must be escaped (as in \\b for \b).
+/// The default string value can be set at startup, and the value can be changed
+/// dynamically while capturing. When the value changes or is different form the
+/// default, its value will be sent as a [`ControlPacket`] during capture.
 #[derive(Debug, Default, TypedBuilder)]
 pub struct StringControl {
     /// The control number, a unique identifier for this control.
     pub control_number: u8,
+    /// A user-visible label for this control.
     pub display: String,
+    // TODO: tooltip for other controls?
+    /// An optional tooltip that is shown when hovering on the UI element.
     pub tooltip: Option<String>,
+    /// An optional placeholder that is shown when this control is empty.
     pub placeholder: Option<String>,
+    /// An optional regular expression string that validates the value on the
+    /// field. If the value does not match the regular expression, the text
+    /// field will appear red and its value will not be sent in a
+    /// [`ControlPacket`].
+    ///
+    /// Despite what the Wireshark documentation says, back slashes in the the
+    /// regular expression string do not have to be escaped, just remember to
+    /// use a Rust raw string when defining them. (e.g. r"\d\d\d\d").
     pub validation: Option<String>,
     // TODO: Default string value?
 }
 
 impl StringControl {
-    /// Sets the value of the control.
+    /// Sets the value in the text field.
     ///
     /// Panics: If the string is longer than 32767 bytes.
     pub fn set_value<'a>(&self, message: &'a str) -> ControlPacket<'a> {
@@ -450,6 +469,11 @@ impl Display for ExtcapFormatter<&StringControl> {
 /// findings in the capture process, setting temporary values or give other
 /// inputs without restarting the current capture.
 ///
+/// Communication from the extcap program to Wireshark is done through methods
+/// on these controls like `set_enabled` or `set_value`, and the implementations
+/// will create a corresponding control packet that can be sent to Wireshark
+/// through [`ControlPacket::send`] or [`ControlPacket::send_async`].
+///
 /// All controls will be presented as GUI elements in a toolbar specific to the
 /// extcap utility. The extcap must not rely on using those controls (they are
 /// optional) because of other capturing tools not using GUI (e.g. tshark,
@@ -489,6 +513,8 @@ pub struct ControlPacket<'a> {
 }
 
 impl<'a> ControlPacket<'a> {
+    /// Creates a new control packet with a payload.
+    #[must_use]
     pub fn new_with_payload<CowSlice: Into<Cow<'a, [u8]>>>(
         control_number: u8,
         command: ControlCommand,
@@ -504,6 +530,8 @@ impl<'a> ControlPacket<'a> {
         }
     }
 
+    /// Creates a new control packet with an empty payload.
+    #[must_use]
     pub fn new(control_number: u8, command: ControlCommand) -> Self {
         let empty_slice: &'static [u8] = &[];
         Self::new_with_payload(control_number, command, empty_slice)
@@ -531,10 +559,13 @@ impl<'a> ControlPacket<'a> {
         }
     }
 
+    /// Sends this control packet to Wireshark using the given `sender`.
     pub fn send(self, sender: &mut synchronous::ExtcapControlSender) -> std::io::Result<()> {
         sender.send(self)
     }
 
+    // TODO: Add feature for async
+    /// Sends this control packet to Wireshark using the given `sender`.
     pub async fn send_async(
         self,
         sender: &mut asynchronous::ExtcapControlSender,
@@ -543,53 +574,52 @@ impl<'a> ControlPacket<'a> {
     }
 }
 
+// TODO: Better APIs for handling incoming control packets?
+
+/// The control command for the control packet. Note that a `ControlCommand` is
+/// not valid for all control types, for example, the `Remove` command is
+/// applicable only to [`SelectorControls`][SelectorControl], and `Initialized`
+/// is only sent by Wireshark to this extcap program.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Nom)]
 #[repr(u8)]
 pub enum ControlCommand {
     /// Sent by Wireshark to indicate that this extcap has been initialized and
     /// is ready to accept packets.
-    ///
-    /// Control type: None
     Initialized = 0,
     /// Either sent by Wireshark to indicate that the user has interacted with
     /// one of the controls, or sent by the extcap program to change the value
     /// on a given control.
     ///
-    /// Control type: boolean / button / logger / selector / string
+    /// Used by control types: [`BooleanControl`], [`ButtonControl`],
+    /// [`LoggerControl`], [`SelectorControl`], and [`StringControl`].
     Set = 1,
     /// Sent by the extcap program to add a value to the given logger or
     /// selector.
     ///
-    /// Control type: logger / selector
+    /// Used by control types: [`LoggerControl`] and [`SelectorControl`].
     Add = 2,
     /// Sent by the extcap program to remove a value from the given selector.
     ///
-    /// Control type: selector
+    /// Used by control types: [`SelectorControl`].
     Remove = 3,
     /// Sent by the extcap program to enable a given control.
     ///
-    /// Control type: boolean / button / selector / string
+    /// Used by control types: [`BooleanControl`], [`ButtonControl`],
+    /// [`SelectorControl`], and [`StringControl`].
     Enable = 4,
     /// Sent by the extcap program to disable a given control.
     ///
-    /// Control type: boolean / button / selector / string
+    /// Used by control types: [`BooleanControl`], [`ButtonControl`],
+    /// [`SelectorControl`], and [`StringControl`].
     Disable = 5,
     /// Sent by the extcap program to show a message in the status bar.
-    ///
-    /// Control type: None
     StatusbarMessage = 6,
     /// Sent by the extcap program to show a message in an information dialog
     /// popup.
-    ///
-    /// Control type: None
     InformationMessage = 7,
     /// Sent by the extcap program to show a message in a warning dialog popup.
-    ///
-    /// Control type: None
     WarningMessage = 8,
     /// Sent by the extcap program to show a message in an error dialog popup.
-    ///
-    /// Control type: None
     ErrorMessage = 9,
 }
 

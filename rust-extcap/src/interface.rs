@@ -19,7 +19,9 @@ pub struct Metadata {
     /// The version of this extcap program, displayed in the about dialog of
     /// Wireshark.
     pub version: Cow<'static, str>,
-    /// A URL linking to more details about this extcap program.
+    /// A URL linking to more details about this extcap program. This is the URL
+    /// opened when the help button in the config dialog, or a
+    /// [`HelpButtonControl`][crate::controls::HelpButtonControl] is clicked.
     pub help_url: Cow<'static, str>,
     /// A user-friendly description of the extcap program.
     pub display_description: Cow<'static, str>,

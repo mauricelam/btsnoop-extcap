@@ -176,6 +176,8 @@ const UNUSED_CONTROL_NUMBER: u8 = 255;
 /// controls, see the methods in the [`control`][crate::controls] module instead.
 #[async_trait]
 pub trait ExtcapControlSenderTrait: Send + Sync + Sized {
+    /// Sends the given `packet` by writing it to the given output file (or
+    /// fifo).
     async fn send(self, packet: ControlPacket<'_>) -> Result<(), tokio::io::Error>;
 
     /// Shows a message in an information dialog popup. The message will show on

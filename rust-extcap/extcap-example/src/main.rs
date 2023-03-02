@@ -183,7 +183,7 @@ lazy_static! {
                         .display("Checkable Child 1")
                         .children([MultiCheckValue::builder()
                             .value("m2c1g1")
-                            .display("Checkable Granchild")
+                            .display("Checkable Grandchild")
                             .build()])
                         .build(),
                     MultiCheckValue::builder()
@@ -192,7 +192,7 @@ lazy_static! {
                         .enabled(false)
                         .children([MultiCheckValue::builder()
                             .value("m2c2g1")
-                            .display("Uncheckable Granchild")
+                            .display("Uncheckable Grandchild")
                             .enabled(false)
                             .build()])
                         .build(),
@@ -238,12 +238,12 @@ lazy_static! {
             display: String::from("Time delay"),
             tooltip: Some(String::from("Time delay between packets")),
             options: vec![
-                ControlValue::builder().value("1").display("1s").build(),
-                ControlValue::builder().value("2").display("2s").build(),
-                ControlValue::builder().value("3").display("3s").build(),
-                ControlValue::builder().value("4").display("4s").build(),
-                ControlValue::builder().value("5").display("5s").build(),
-                ControlValue::builder().value("60").display( "60s").build(),
+                SelectorControlOption::builder().value("1").display("1s").build(),
+                SelectorControlOption::builder().value("2").display("2s").build(),
+                SelectorControlOption::builder().value("3").display("3s").build(),
+                SelectorControlOption::builder().value("4").display("4s").build(),
+                SelectorControlOption::builder().value("5").display("5s").build(),
+                SelectorControlOption::builder().value("60").display( "60s").build(),
             ],
         },
         control_verify: BooleanControl {

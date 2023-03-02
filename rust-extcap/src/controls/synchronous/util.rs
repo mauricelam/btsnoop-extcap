@@ -1,5 +1,8 @@
+//! Random assortment of utility methods.
+
 use std::io::Read;
 
+/// Extension trait for [`Read`].
 pub trait ReadExt: Read {
     /// Reads the exact number of bytes, like `read_exact`, but returns `None` if it gets EOF at
     /// the start of the read. In other words, this is the "all or nothing" version of `read`.

@@ -1,6 +1,9 @@
+//! Random assortment of utility methods.
+
 use async_trait::async_trait;
 use tokio::io::{AsyncRead, AsyncReadExt as _};
 
+/// Extension trait for [`AsyncRead`].
 #[async_trait]
 pub trait AsyncReadExt: AsyncRead + Unpin {
     /// Reads the exact number of bytes, like `read_exact`, but returns `None` if it gets EOF at
