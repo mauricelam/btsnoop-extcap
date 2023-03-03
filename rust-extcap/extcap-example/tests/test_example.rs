@@ -38,9 +38,9 @@ fn config() {
         .success()
         .stdout(predicate::str::diff(indoc! {"
             arg {number=0}{call=--delay}{display=Time delay}{tooltip=Time delay between packages}{range=1,15}{default=5}{type=integer}
-            arg {number=1}{call=--message}{display=Message}{tooltip=Package message content}{placeholder=Please enter a message here ...}{required=true}{save=false}{type=string}
+            arg {number=1}{call=--message}{display=Message}{tooltip=Package message content}{placeholder=Please enter a message here ...}{required=true}{save=true}{type=string}
             arg {number=2}{call=--verify}{display=Verify}{tooltip=Verify package content}{default=true}{type=boolflag}
-            arg {number=3}{call=--remote}{display=Remote Channel}{tooltip=Remote Channel Selector}{placeholder=Load interfaces ...}{type=selector}{reload=true}
+            arg {number=3}{call=--remote}{display=Remote Channel}{tooltip=Remote Channel Selector}{type=selector}{reload=true}{placeholder=Load interfaces...}
             value {arg=3}{value=if1}{display=Remote1}{default=true}
             value {arg=3}{value=if2}{display=Remote2}{default=false}
             arg {number=4}{call=--fake_ip}{display=Fake IP Address}{tooltip=Use this ip address as sender}{validation=\\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\b}{save=true}{type=string}

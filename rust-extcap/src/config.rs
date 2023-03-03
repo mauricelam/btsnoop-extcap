@@ -1,16 +1,16 @@
-//! Module for implementing extcap config, which are UI elements shown in
-//! Wireshark that allows the user to customize the capture.
+//! Module for implementing extcap config (also known as `arg`), which are UI
+//! elements shown in Wireshark that allows the user to customize the capture.
 //!
 //! Each interface can have custom options that are valid for this interface
 //! only. Those config options are specified on the command line when running
 //! the actual capture.
 
 use std::any::Any;
-use std::fmt::{Debug, Display};
+use std::fmt::Debug;
 use std::ops::RangeInclusive;
 use typed_builder::TypedBuilder;
 
-pub use crate::{ExtcapFormatter, PrintConfig};
+pub use crate::{ExtcapFormatter, PrintSentence};
 
 macro_rules! generate_config_ext {
     ($config_type:ty) => {
@@ -26,17 +26,19 @@ macro_rules! generate_config_ext {
     };
 }
 
-/// A functional trait for [`SelectorConfig::reload`]. Users normally do not
-/// have to use this trait directly, as it is automatically implemented for all
-/// `Fn() -> Vec<ConfigOptionValue> + Sync + 'static`, so callers can simply
-/// pass a closure into `reload()`.
-pub trait ReloadFn: Fn() -> Vec<ConfigOptionValue> + Sync + 'static {}
+/// Defines a reload operation for [`SelectorConfig`].
+pub struct Reload {
+    /// The label for the reload button displayed next to the selector config.
+    pub label: String,
+    /// The reload function executed when the reload button is pressed. Note
+    /// that this reload operation is run in a separate invocation of the
+    /// program, meaning it should not rely on any in-memory state.
+    pub reload_fn: fn() -> Vec<ConfigOptionValue>,
+}
 
-impl<F> ReloadFn for F where F: Fn() -> Vec<ConfigOptionValue> + Sync + 'static {}
-
-impl std::fmt::Debug for dyn ReloadFn {
+impl std::fmt::Debug for Reload {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "ReloadFn")
+        write!(f, "Reload(label={})", self.label)
     }
 }
 
@@ -84,123 +86,48 @@ pub struct SelectorConfig {
     pub tooltip: Option<String>,
     /// If this is `Some`, a refresh button will be shown next to the selector,
     /// allowing the user to refresh the list of available options to the return
-    /// value of this function.
+    /// value of this function. The first element of the pair is the label of
+    /// the button, and the second element is the function that will be invoked
+    /// on click.
+    ///
+    /// Note: In extcap, the key for the button label is called `placeholder`,
+    /// for some reason.
     #[builder(default, setter(strip_option))]
-    pub reload: Option<Box<dyn ReloadFn>>,
-    /// The placeholder string displayed if there is no value selected.
+    pub reload: Option<Reload>,
+    /// The (user-visible) name of the tab which this config belongs to. If this
+    /// is `None`, the config will be placed in a tab called "Default".
     #[builder(default, setter(strip_option, into))]
-    pub placeholder: Option<String>,
+    pub group: Option<String>,
     /// The default list of options presented by this selector.
     #[builder(setter(into))]
     pub default_options: Vec<ConfigOptionValue>,
 }
 
-impl<'a> Display for ExtcapFormatter<&'a SelectorConfig> {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "arg {{number={}}}", self.0.config_number)?;
-        write!(f, "{{call=--{}}}", self.0.call)?;
-        write!(f, "{{display={}}}", self.0.display)?;
-        if let Some(tooltip) = &self.0.tooltip {
+impl PrintSentence for SelectorConfig {
+    fn format_sentence(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "arg {{number={}}}", self.config_number)?;
+        write!(f, "{{call=--{}}}", self.call)?;
+        write!(f, "{{display={}}}", self.display)?;
+        if let Some(tooltip) = &self.tooltip {
             write!(f, "{{tooltip={tooltip}}}")?;
         }
-        if let Some(placeholder) = &self.0.placeholder {
-            write!(f, "{{placeholder={placeholder}}}")?;
-        }
         write!(f, "{{type=selector}}")?;
-        if self.0.reload.is_some() {
+        if let Some(Reload { label, .. }) = &self.reload {
             write!(f, "{{reload=true}}")?;
+            write!(f, "{{placeholder={label}}}")?;
+        }
+        if let Some(group) = &self.group {
+            write!(f, "{{group={group}}}")?;
         }
         writeln!(f)?;
-        for opt in self.0.default_options.iter() {
-            write!(f, "{}", ExtcapFormatter(&(opt, self.0.config_number)))?;
+        for opt in self.default_options.iter() {
+            write!(f, "{}", ExtcapFormatter(&(opt, self.config_number)))?;
         }
         Ok(())
     }
 }
 
 generate_config_ext!(SelectorConfig);
-
-/// A selector config that presents a list of options in a drop-down list. With
-/// edit selector, the user can also choose to enter a value not present in the
-/// list
-///
-/// ```
-/// use rust_extcap::config::*;
-///
-/// let edit_selector = EditSelectorConfig::builder()
-///     .config_number(3)
-///     .call("remote")
-///     .display("Remote Channel")
-///     .tooltip("Remote Channel Selector")
-///     .options([
-///         ConfigOptionValue::builder().value("if1").display("Remote1").default(true).build(),
-///         ConfigOptionValue::builder().value("if2").display("Remote2").build(),
-///     ])
-///     .build();
-/// assert_eq!(
-///     format!("{}", ExtcapFormatter(&edit_selector)),
-///     concat!(
-///         "arg {number=3}{call=--remote}{display=Remote Channel}{tooltip=Remote Channel Selector}{type=editselector}\n",
-///         "value {arg=3}{value=if1}{display=Remote1}{default=true}\n",
-///         "value {arg=3}{value=if2}{display=Remote2}{default=false}\n"
-///     )
-/// );
-/// ```
-#[derive(Debug, TypedBuilder)]
-pub struct EditSelectorConfig {
-    /// The config number, a unique identifier for this config.
-    pub config_number: u8,
-    /// The command line option that will be sent to this extcap program. For
-    /// example, if this field is `foobar`, and the corresponding value is `42`,
-    /// then `--foobar 42` will be sent to this program during the extcap
-    /// capture.
-    #[builder(setter(into))]
-    pub call: String,
-    /// The user-friendly label for the selector.
-    #[builder(setter(into))]
-    pub display: String,
-    /// The tooltip shown on when hovering over the UI element.
-    #[builder(default, setter(strip_option, into))]
-    pub tooltip: Option<String>,
-    /// If this is `Some`, a refresh button will be shown next to the selector,
-    /// allowing the user to refresh the list of available options to the return
-    /// value of this function.
-    #[builder(default)]
-    pub reload: Option<Box<dyn ReloadFn>>,
-    /// The placeholder string displayed if there is no value selected.
-    #[builder(default, setter(strip_option, into))]
-    pub placeholder: Option<String>,
-    /// The default list of options presented by this selector.
-    #[builder(setter(into))]
-    pub options: Vec<ConfigOptionValue>,
-}
-
-impl<'a> Display for ExtcapFormatter<&'a EditSelectorConfig> {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "arg {{number={}}}", self.0.config_number)?;
-        write!(f, "{{call=--{}}}", self.0.call)?;
-        write!(f, "{{display={}}}", self.0.display)?;
-        if let Some(tooltip) = &self.0.tooltip {
-            write!(f, "{{tooltip={tooltip}}}")?;
-        }
-        if let Some(placeholder) = &self.0.placeholder {
-            write!(f, "{{placeholder={}}}", placeholder)?;
-        }
-        write!(f, "{{type=editselector}}")?;
-        if self.0.reload.is_some() {
-            write!(f, "{{reload=true}}")?;
-        }
-        writeln!(f)?;
-        for opt in self.0.options.iter() {
-            write!(f, "{}", ExtcapFormatter(&(opt, self.0.config_number)))?;
-        }
-        Ok(())
-    }
-}
-
-generate_config_ext!(EditSelectorConfig);
-
-// TODO: Add `group` to all elements.
 
 /// A list of radio buttons for the user to choose one value from. The list of
 /// options should have exactly one item with default=true.
@@ -243,8 +170,8 @@ pub struct RadioConfig {
     /// The tooltip shown on when hovering over the UI element.
     #[builder(default, setter(strip_option, into))]
     pub tooltip: Option<String>,
-    /// The (user-visible) name of the tab which this config belongs to.
-    /// TODO: Document what happens if this is None
+    /// The (user-visible) name of the tab which this config belongs to. If this
+    /// is `None`, the config will be placed in a tab called "Default".
     #[builder(default, setter(strip_option, into))]
     pub group: Option<String>,
     /// The default list of options presented by this config.
@@ -252,21 +179,21 @@ pub struct RadioConfig {
     pub options: Vec<ConfigOptionValue>,
 }
 
-impl<'a> Display for ExtcapFormatter<&'a RadioConfig> {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "arg {{number={}}}", self.0.config_number)?;
-        write!(f, "{{call=--{}}}", self.0.call)?;
-        write!(f, "{{display={}}}", self.0.display)?;
-        if let Some(tooltip) = &self.0.tooltip {
+impl PrintSentence for RadioConfig {
+    fn format_sentence(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "arg {{number={}}}", self.config_number)?;
+        write!(f, "{{call=--{}}}", self.call)?;
+        write!(f, "{{display={}}}", self.display)?;
+        if let Some(tooltip) = &self.tooltip {
             write!(f, "{{tooltip={tooltip}}}")?;
         }
-        if let Some(group) = &self.0.group {
+        if let Some(group) = &self.group {
             write!(f, "{{group={}}}", group)?;
         }
         write!(f, "{{type=radio}}")?;
         writeln!(f)?;
-        for opt in self.0.options.iter() {
-            write!(f, "{}", ExtcapFormatter(&(opt, self.0.config_number)))?;
+        for opt in self.options.iter() {
+            write!(f, "{}", ExtcapFormatter(&(opt, self.config_number)))?;
         }
         Ok(())
     }
@@ -331,8 +258,8 @@ pub struct MultiCheckConfig {
     /// The tooltip shown on when hovering over the UI element.
     #[builder(default, setter(strip_option, into))]
     pub tooltip: Option<String>,
-    /// The (user-visible) name of the tab which this config belongs to.
-    /// TODO: Document what happens if this is None
+    /// The (user-visible) name of the tab which this config belongs to. If this
+    /// is `None`, the config will be placed in a tab called "Default".
     #[builder(default, setter(strip_option, into))]
     pub group: Option<String>,
     /// The default list of options presented by this config. This can be refreshed by the user using via the `reload` field.
@@ -340,21 +267,21 @@ pub struct MultiCheckConfig {
     pub options: Vec<MultiCheckValue>,
 }
 
-impl<'a> Display for ExtcapFormatter<&'a MultiCheckConfig> {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "arg {{number={}}}", self.0.config_number)?;
-        write!(f, "{{call=--{}}}", self.0.call)?;
-        write!(f, "{{display={}}}", self.0.display)?;
-        if let Some(tooltip) = &self.0.tooltip {
+impl PrintSentence for MultiCheckConfig {
+    fn format_sentence(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "arg {{number={}}}", self.config_number)?;
+        write!(f, "{{call=--{}}}", self.call)?;
+        write!(f, "{{display={}}}", self.display)?;
+        if let Some(tooltip) = &self.tooltip {
             write!(f, "{{tooltip={tooltip}}}")?;
         }
-        if let Some(group) = &self.0.group {
+        if let Some(group) = &self.group {
             write!(f, "{{group={}}}", group)?;
         }
         write!(f, "{{type=multicheck}}")?;
         writeln!(f)?;
-        for opt in self.0.options.iter() {
-            write!(f, "{}", ExtcapFormatter((opt, self.0.config_number, None)))?;
+        for opt in self.options.iter() {
+            write!(f, "{}", ExtcapFormatter(&(opt, self.config_number, None)))?;
         }
         Ok(())
     }
@@ -380,7 +307,6 @@ pub struct MultiCheckValue {
     #[builder(default = false)]
     default_value: bool,
     /// Whether this checkbox is enabled or not.
-    /// TODO: Does this element support reload?
     #[builder(default = true)]
     enabled: bool,
     /// The list of children checkboxes. Children check boxes will be indented
@@ -390,9 +316,9 @@ pub struct MultiCheckValue {
     children: Vec<MultiCheckValue>,
 }
 
-impl<'a> Display for ExtcapFormatter<(&'a MultiCheckValue, u8, Option<&'a MultiCheckValue>)> {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let (config, config_number, parent) = self.0;
+impl PrintSentence for (&MultiCheckValue, u8, Option<&MultiCheckValue>) {
+    fn format_sentence(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let (config, config_number, parent) = self;
         write!(f, "value {{arg={}}}", config_number)?;
         write!(f, "{{value={}}}", config.value)?;
         write!(f, "{{display={}}}", config.display)?;
@@ -403,7 +329,7 @@ impl<'a> Display for ExtcapFormatter<(&'a MultiCheckValue, u8, Option<&'a MultiC
         }
         writeln!(f)?;
         for c in config.children.iter() {
-            write!(f, "{}", Self((c, config_number, Some(config))))?;
+            write!(f, "{}", ExtcapFormatter(&(c, *config_number, Some(*config))))?;
         }
         Ok(())
     }
@@ -449,26 +375,27 @@ pub struct LongConfig {
     pub range: Option<RangeInclusive<i64>>,
     /// The default value for this config.
     pub default_value: i64,
-    /// The (user-visible) name of the tab which this config belongs to.
+    /// The (user-visible) name of the tab which this config belongs to. If this
+    /// is `None`, the config will be placed in a tab called "Default".
     #[builder(default, setter(strip_option, into))]
     pub group: Option<String>,
 }
 
-impl<'a> Display for ExtcapFormatter<&'a LongConfig> {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "arg {{number={}}}", self.0.config_number)?;
-        write!(f, "{{call=--{}}}", self.0.call)?;
-        write!(f, "{{display={}}}", self.0.display)?;
-        if let Some(tooltip) = &self.0.tooltip {
+impl PrintSentence for LongConfig {
+    fn format_sentence(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "arg {{number={}}}", self.config_number)?;
+        write!(f, "{{call=--{}}}", self.call)?;
+        write!(f, "{{display={}}}", self.display)?;
+        if let Some(tooltip) = &self.tooltip {
             write!(f, "{{tooltip={tooltip}}}")?;
         }
-        if let Some(range) = &self.0.range {
+        if let Some(range) = &self.range {
             write!(f, "{{range={},{}}}", range.start(), range.end())?;
         }
-        write!(f, "{{default={}}}", self.0.default_value)?;
+        write!(f, "{{default={}}}", self.default_value)?;
         write!(f, "{{type=long}}")?;
-        if let Some(group) = &self.0.group {
-            write!(f, "{{group={}}}", group)?;
+        if let Some(group) = &self.group {
+            write!(f, "{{group={group}}}")?;
         }
         writeln!(f)?;
         Ok(())
@@ -517,26 +444,27 @@ pub struct IntegerConfig {
     pub range: Option<RangeInclusive<i32>>,
     /// The default value for this config.
     pub default_value: i32,
-    /// The (user-visible) name of the tab which this config belongs to.
+    /// The (user-visible) name of the tab which this config belongs to. If this
+    /// is `None`, the config will be placed in a tab called "Default".
     #[builder(default, setter(strip_option, into))]
     pub group: Option<String>,
 }
 
-impl<'a> Display for ExtcapFormatter<&'a IntegerConfig> {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "arg {{number={}}}", self.0.config_number)?;
-        write!(f, "{{call=--{}}}", self.0.call)?;
-        write!(f, "{{display={}}}", self.0.display)?;
-        if let Some(tooltip) = &self.0.tooltip {
+impl PrintSentence for IntegerConfig {
+    fn format_sentence(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "arg {{number={}}}", self.config_number)?;
+        write!(f, "{{call=--{}}}", self.call)?;
+        write!(f, "{{display={}}}", self.display)?;
+        if let Some(tooltip) = &self.tooltip {
             write!(f, "{{tooltip={tooltip}}}")?;
         }
-        if let Some(range) = &self.0.range {
+        if let Some(range) = &self.range {
             write!(f, "{{range={},{}}}", range.start(), range.end())?;
         }
-        write!(f, "{{default={}}}", self.0.default_value)?;
+        write!(f, "{{default={}}}", self.default_value)?;
         write!(f, "{{type=integer}}")?;
-        if let Some(group) = &self.0.group {
-            write!(f, "{{group={}}}", group)?;
+        if let Some(group) = &self.group {
+            write!(f, "{{group={group}}}")?;
         }
         writeln!(f)?;
         Ok(())
@@ -585,26 +513,27 @@ pub struct UnsignedConfig {
     pub range: Option<RangeInclusive<u32>>,
     /// The default value for this config.
     pub default_value: u32,
-    /// The (user-visible) name of the tab which this config belongs to.
+    /// The (user-visible) name of the tab which this config belongs to. If this
+    /// is `None`, the config will be placed in a tab called "Default".
     #[builder(default, setter(strip_option, into))]
     pub group: Option<String>,
 }
 
-impl<'a> Display for ExtcapFormatter<&'a UnsignedConfig> {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "arg {{number={}}}", self.0.config_number)?;
-        write!(f, "{{call=--{}}}", self.0.call)?;
-        write!(f, "{{display={}}}", self.0.display)?;
-        if let Some(tooltip) = &self.0.tooltip {
+impl PrintSentence for UnsignedConfig {
+    fn format_sentence(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "arg {{number={}}}", self.config_number)?;
+        write!(f, "{{call=--{}}}", self.call)?;
+        write!(f, "{{display={}}}", self.display)?;
+        if let Some(tooltip) = &self.tooltip {
             write!(f, "{{tooltip={tooltip}}}")?;
         }
-        if let Some(range) = &self.0.range {
+        if let Some(range) = &self.range {
             write!(f, "{{range={},{}}}", range.start(), range.end())?;
         }
-        write!(f, "{{default={}}}", self.0.default_value)?;
+        write!(f, "{{default={}}}", self.default_value)?;
         write!(f, "{{type=unsigned}}")?;
-        if let Some(group) = &self.0.group {
-            write!(f, "{{group={}}}", group)?;
+        if let Some(group) = &self.group {
+            write!(f, "{{group={group}}}")?;
         }
         writeln!(f)?;
         Ok(())
@@ -653,26 +582,27 @@ pub struct DoubleConfig {
     pub range: Option<RangeInclusive<f64>>,
     /// The default value for this config.
     pub default_value: f64,
-    /// The (user-visible) name of the tab which this config belongs to.
+    /// The (user-visible) name of the tab which this config belongs to. If this
+    /// is `None`, the config will be placed in a tab called "Default".
     #[builder(default, setter(strip_option, into))]
     pub group: Option<String>,
 }
 
-impl<'a> Display for ExtcapFormatter<&'a DoubleConfig> {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "arg {{number={}}}", self.0.config_number)?;
-        write!(f, "{{call=--{}}}", self.0.call)?;
-        write!(f, "{{display={}}}", self.0.display)?;
-        if let Some(tooltip) = &self.0.tooltip {
+impl PrintSentence for DoubleConfig {
+    fn format_sentence(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "arg {{number={}}}", self.config_number)?;
+        write!(f, "{{call=--{}}}", self.call)?;
+        write!(f, "{{display={}}}", self.display)?;
+        if let Some(tooltip) = &self.tooltip {
             write!(f, "{{tooltip={tooltip}}}")?;
         }
-        if let Some(range) = &self.0.range {
+        if let Some(range) = &self.range {
             write!(f, "{{range={},{}}}", range.start(), range.end())?;
         }
-        write!(f, "{{default={}}}", self.0.default_value)?;
+        write!(f, "{{default={}}}", self.default_value)?;
         write!(f, "{{type=double}}")?;
-        if let Some(group) = &self.0.group {
-            write!(f, "{{group={}}}", group)?;
+        if let Some(group) = &self.group {
+            write!(f, "{{group={group}}}")?;
         }
         writeln!(f)?;
         Ok(())
@@ -701,6 +631,7 @@ generate_config_ext!(DoubleConfig);
 ///     )
 /// );
 /// ```
+#[allow(deprecated)]
 #[derive(Debug, TypedBuilder)]
 pub struct StringConfig {
     /// The config number, a unique identifier for this config.
@@ -721,11 +652,12 @@ pub struct StringConfig {
     #[builder(default, setter(strip_option, into))]
     pub placeholder: Option<String>,
     /// Whether a value is required for this config.
-    ///
-    /// TODO: is required available for other fields?
     #[builder(default = false)]
     pub required: bool,
-
+    /// The (user-visible) name of the tab which this config belongs to. If this
+    /// is `None`, the config will be placed in a tab called "Default".
+    #[builder(default, setter(strip_option, into))]
+    pub group: Option<String>,
     /// A regular expression string used to check the user input for validity.
     /// Despite what the Wireshark documentation says, back-slashes in this
     /// string do not need to be escaped. Just remember to use a Rust raw string
@@ -736,29 +668,36 @@ pub struct StringConfig {
     /// saved by Wireshark, and will be automatically populated next time that
     /// interface is selected by the user.
     ///
-    /// TODO: Check whether other configs support this as well.
+    /// This option is undocumented, and does not behave correctly when set to
+    /// false in my testing. Perhaps related to
+    /// <https://gitlab.com/wireshark/wireshark/-/issues/18487>.
+    #[deprecated(note="This is undocumented, and does not behave correctly when set to false in my testing.")]
     #[builder(default = true)]
     pub save: bool,
 }
 
-impl<'a> Display for ExtcapFormatter<&'a StringConfig> {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "arg {{number={}}}", self.0.config_number)?;
-        write!(f, "{{call=--{}}}", self.0.call)?;
-        write!(f, "{{display={}}}", self.0.display)?;
-        if let Some(tooltip) = &self.0.tooltip {
+impl PrintSentence for StringConfig {
+    #[allow(deprecated)]
+    fn format_sentence(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "arg {{number={}}}", self.config_number)?;
+        write!(f, "{{call=--{}}}", self.call)?;
+        write!(f, "{{display={}}}", self.display)?;
+        if let Some(tooltip) = &self.tooltip {
             write!(f, "{{tooltip={tooltip}}}")?;
         }
-        if let Some(placeholder) = &self.0.placeholder {
+        if let Some(placeholder) = &self.placeholder {
             write!(f, "{{placeholder={}}}", placeholder)?;
         }
-        if self.0.required {
+        if self.required {
             write!(f, "{{required=true}}")?;
         }
-        if let Some(validation) = &self.0.validation {
+        if let Some(validation) = &self.validation {
             write!(f, "{{validation={}}}", validation)?;
         }
-        write!(f, "{{save={}}}", self.0.save)?;
+        if let Some(group) = &self.group {
+            write!(f, "{{group={group}}}")?;
+        }
+        write!(f, "{{save={}}}", self.save)?;
         write!(f, "{{type=string}}")?;
         writeln!(f)?;
         Ok(())
@@ -812,24 +751,31 @@ pub struct PasswordConfig {
     /// (e.g. `r"\d\d\d\d"`).
     #[builder(default, setter(strip_option, into))]
     pub validation: Option<String>,
+    /// The (user-visible) name of the tab which this config belongs to. If this
+    /// is `None`, the config will be placed in a tab called "Default".
+    #[builder(default, setter(strip_option, into))]
+    pub group: Option<String>,
 }
 
-impl<'a> Display for ExtcapFormatter<&'a PasswordConfig> {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "arg {{number={}}}", self.0.config_number)?;
-        write!(f, "{{call=--{}}}", self.0.call)?;
-        write!(f, "{{display={}}}", self.0.display)?;
-        if let Some(tooltip) = &self.0.tooltip {
+impl PrintSentence for PasswordConfig {
+    fn format_sentence(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "arg {{number={}}}", self.config_number)?;
+        write!(f, "{{call=--{}}}", self.call)?;
+        write!(f, "{{display={}}}", self.display)?;
+        if let Some(tooltip) = &self.tooltip {
             write!(f, "{{tooltip={tooltip}}}")?;
         }
-        if let Some(placeholder) = &self.0.placeholder {
+        if let Some(placeholder) = &self.placeholder {
             write!(f, "{{placeholder={}}}", placeholder)?;
         }
-        if self.0.required {
+        if self.required {
             write!(f, "{{required=true}}")?;
         }
-        if let Some(validation) = &self.0.validation {
+        if let Some(validation) = &self.validation {
             write!(f, "{{validation={}}}", validation)?;
+        }
+        if let Some(group) = &self.group {
+            write!(f, "{{group={group}}}")?;
         }
         write!(f, "{{type=password}}")?;
         writeln!(f)?;
@@ -872,20 +818,23 @@ pub struct TimestampConfig {
     /// The tooltip shown on when hovering over the UI element.
     #[builder(default, setter(strip_option, into))]
     pub tooltip: Option<String>,
-    /// The (user-visible) name of the tab which this config belongs to.
-    #[builder(setter(into))]
-    pub group: String,
+    /// The (user-visible) name of the tab which this config belongs to. If this
+    /// is `None`, the config will be placed in a tab called "Default".
+    #[builder(default, setter(strip_option, into))]
+    pub group: Option<String>,
 }
 
-impl<'a> Display for ExtcapFormatter<&'a TimestampConfig> {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "arg {{number={}}}", self.0.config_number)?;
-        write!(f, "{{call=--{}}}", self.0.call)?;
-        write!(f, "{{display={}}}", self.0.display)?;
-        if let Some(tooltip) = &self.0.tooltip {
+impl PrintSentence for TimestampConfig {
+    fn format_sentence(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "arg {{number={}}}", self.config_number)?;
+        write!(f, "{{call=--{}}}", self.call)?;
+        write!(f, "{{display={}}}", self.display)?;
+        if let Some(tooltip) = &self.tooltip {
             write!(f, "{{tooltip={tooltip}}}")?;
         }
-        write!(f, "{{group={}}}", self.0.group)?;
+        if let Some(group) = &self.group {
+            write!(f, "{{group={group}}}")?;
+        }
         write!(f, "{{type=timestamp}}")?;
         writeln!(f)?;
         Ok(())
@@ -927,28 +876,46 @@ pub struct FileSelectConfig {
     /// The tooltip shown on when hovering over the UI element.
     #[builder(default, setter(strip_option, into))]
     pub tooltip: Option<String>,
-    /// The (user-visible) name of the tab which this config belongs to.
+    /// The (user-visible) name of the tab which this config belongs to. If this
+    /// is `None`, the config will be placed in a tab called "Default".
     #[builder(default, setter(strip_option, into))]
     pub group: Option<String>,
     /// If true is provided, the GUI shows the user a dialog for selecting an
     /// existing file. If false, the GUI shows a file dialog for saving a file.
     #[builder(default = true)]
     pub must_exist: bool,
+    /// If set, provide a filter for the file extension selectable by this
+    /// config. The format of the filter string is the same as qt's
+    /// [`QFileDialog`](https://doc.qt.io/qt-6/qfiledialog.html).
+    ///
+    /// For example, the filter `Text files (*.txt);;XML files (*.xml)` will
+    /// limit to `.txt` and `.xml` files:
+    ///
+    /// If `None`, any file can be selected (equivalent to `All Files (*)`).
+    ///
+    /// This feature is currnetly not documented in the Wireshark docs, but a
+    /// high level detail can be found in this commit:
+    /// <https://gitlab.com/wireshark/wireshark/-/commit/0d47113ddc53714ecd6d3c1b58b694321649d89e>
+    #[builder(default, setter(into, strip_option))]
+    pub file_extension_filter: Option<String>
 }
 
-impl<'a> Display for ExtcapFormatter<&'a FileSelectConfig> {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "arg {{number={}}}", self.0.config_number)?;
-        write!(f, "{{call=--{}}}", self.0.call)?;
-        write!(f, "{{display={}}}", self.0.display)?;
-        if let Some(tooltip) = &self.0.tooltip {
+impl PrintSentence for FileSelectConfig {
+    fn format_sentence(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "arg {{number={}}}", self.config_number)?;
+        write!(f, "{{call=--{}}}", self.call)?;
+        write!(f, "{{display={}}}", self.display)?;
+        if let Some(tooltip) = &self.tooltip {
             write!(f, "{{tooltip={tooltip}}}")?;
         }
-        if let Some(group) = &self.0.group {
+        if let Some(group) = &self.group {
             write!(f, "{{group={group}}}")?;
         }
         write!(f, "{{type=fileselect}}")?;
-        write!(f, "{{mustexist={}}}", self.0.must_exist)?;
+        write!(f, "{{mustexist={}}}", self.must_exist)?;
+        if let Some(file_extension_filter) = &self.file_extension_filter {
+            write!(f, "{{fileext={}}}", file_extension_filter)?;
+        }
         writeln!(f)?;
         Ok(())
     }
@@ -991,6 +958,10 @@ pub struct BooleanConfig {
     /// The default value for this config.
     #[builder(default = false)]
     pub default_value: bool,
+    /// The (user-visible) name of the tab which this config belongs to. If this
+    /// is `None`, the config will be placed in a tab called "Default".
+    #[builder(default, setter(strip_option, into))]
+    pub group: Option<String>,
     /// If true, always include the command line flag (e.g. either `--foo true`
     /// or `--foo false`). If false (the default), the flag is provided to the
     /// command without a value if this is checked (`--foo`), or omitted from
@@ -999,21 +970,24 @@ pub struct BooleanConfig {
     pub always_include_option: bool,
 }
 
-impl<'a> Display for ExtcapFormatter<&'a BooleanConfig> {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "arg {{number={}}}", self.0.config_number)?;
-        write!(f, "{{call=--{}}}", self.0.call)?;
-        write!(f, "{{display={}}}", self.0.display)?;
-        if let Some(tooltip) = &self.0.tooltip {
+impl PrintSentence for BooleanConfig {
+    fn format_sentence(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "arg {{number={}}}", self.config_number)?;
+        write!(f, "{{call=--{}}}", self.call)?;
+        write!(f, "{{display={}}}", self.display)?;
+        if let Some(tooltip) = &self.tooltip {
             write!(f, "{{tooltip={tooltip}}}")?;
         }
-        if self.0.default_value {
+        if self.default_value {
             write!(f, "{{default=true}}")?;
         }
-        if self.0.always_include_option {
+        if self.always_include_option {
             write!(f, "{{type=boolean}}")?;
         } else {
             write!(f, "{{type=boolflag}}")?;
+        }
+        if let Some(group) = &self.group {
+            write!(f, "{{group={group}}}")?;
         }
         writeln!(f)?;
         Ok(())
@@ -1022,8 +996,7 @@ impl<'a> Display for ExtcapFormatter<&'a BooleanConfig> {
 
 generate_config_ext!(BooleanConfig);
 
-/// An option for [`SelectorConfig`], [`EditSelectorConfig`], and
-/// [`RadioConfig`].
+/// An option for [`SelectorConfig`] and [`RadioConfig`].
 #[derive(Clone, Debug, TypedBuilder)]
 pub struct ConfigOptionValue {
     /// The value of this option. If this option is selected, the value will be
@@ -1042,15 +1015,15 @@ pub struct ConfigOptionValue {
 }
 
 impl ConfigOptionValue {
-    /// Prints out the config to stdout for Wireshark's consumption.
-    pub fn print_config(&self, number: u8) {
-        (self, number).print_config()
+    /// Prints out the extcap sentence to stdout for Wireshark's consumption.
+    pub fn print_sentence(&self, number: u8) {
+        (self, number).print_sentence()
     }
 }
 
-impl<'a> Display for ExtcapFormatter<&'a (&ConfigOptionValue, u8)> {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let (config, arg_number) = self.0;
+impl PrintSentence for (&ConfigOptionValue, u8) {
+    fn format_sentence(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let (config, arg_number) = self;
         write!(f, "value {{arg={}}}", arg_number)?;
         write!(f, "{{value={}}}", config.value)?;
         write!(f, "{{display={}}}", config.display)?;
@@ -1060,9 +1033,9 @@ impl<'a> Display for ExtcapFormatter<&'a (&ConfigOptionValue, u8)> {
     }
 }
 
-/// Represents a config, which is a UI element shown in Wireshark that allows
-/// the user to customize the capture.
-pub trait ConfigTrait: PrintConfig + Any {
+/// Represents a config, also known as `arg` in an extcap sentence`, which is a
+/// UI element shown in Wireshark that allows the user to customize the capture.
+pub trait ConfigTrait: PrintSentence + Any {
     /// The command line option that will be sent to this extcap program. For
     /// example, if this field is `foobar`, and the corresponding value is `42`,
     /// then `--foobar 42` will be sent to this program during the extcap

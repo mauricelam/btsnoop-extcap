@@ -9,13 +9,13 @@
 //!    things like displaying status bar and dialog messages, as well as for
 //!    Wireshark to send events like `Initialized`.
 
-use std::{borrow::Cow, fmt::Display};
+use std::borrow::Cow;
 
 use nom::number::streaming::be_u24;
 use nom_derive::Nom;
 use typed_builder::TypedBuilder;
 
-use crate::{ExtcapFormatter, PrintConfig};
+use crate::PrintSentence;
 
 use {asynchronous::ExtcapControlSenderTrait as _, synchronous::ExtcapControlSenderTrait as _};
 
@@ -74,7 +74,9 @@ pub struct BooleanControl {
     /// Tooltip shown when hovering over the UI element.
     #[builder(default, setter(strip_option, into))]
     pub tooltip: Option<String>,
-    // TODO: The extcap utility can set a default value at startup???
+    /// Whether the control should be checked or unchecked by default
+    #[builder(default = false)]
+    pub default_value: bool,
 }
 
 impl EnableableControl for BooleanControl {}
@@ -91,12 +93,13 @@ impl BooleanControl {
     }
 }
 
-impl Display for ExtcapFormatter<&BooleanControl> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "control {{number={}}}", self.0.control_number())?;
+impl PrintSentence for BooleanControl {
+    fn format_sentence(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "control {{number={}}}", self.control_number())?;
         write!(f, "{{type=boolean}}")?;
-        write!(f, "{{display={}}}", self.0.display)?;
-        if let Some(tooltip) = &self.0.tooltip {
+        write!(f, "{{display={}}}", self.display)?;
+        write!(f, "{{default={}}}", self.default_value)?;
+        if let Some(tooltip) = &self.tooltip {
             write!(f, "{{tooltip={}}}", tooltip)?;
         }
         writeln!(f)
@@ -140,12 +143,12 @@ impl ToolbarControl for ButtonControl {
     }
 }
 
-impl Display for ExtcapFormatter<&ButtonControl> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "control {{number={}}}", self.0.control_number())?;
+impl PrintSentence for ButtonControl {
+    fn format_sentence(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "control {{number={}}}", self.control_number())?;
         write!(f, "{{type=button}}")?;
-        write!(f, "{{display={}}}", self.0.display)?;
-        if let Some(tooltip) = &self.0.tooltip {
+        write!(f, "{{display={}}}", self.display)?;
+        if let Some(tooltip) = &self.tooltip {
             write!(f, "{{tooltip={}}}", tooltip)?;
         }
         writeln!(f)
@@ -196,13 +199,13 @@ impl ToolbarControl for LoggerControl {
     }
 }
 
-impl Display for ExtcapFormatter<&LoggerControl> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "control {{number={}}}", self.0.control_number())?;
+impl PrintSentence for LoggerControl {
+    fn format_sentence(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "control {{number={}}}", self.control_number())?;
         write!(f, "{{type=button}}")?;
         write!(f, "{{role=logger}}")?;
-        write!(f, "{{display={}}}", self.0.display)?;
-        if let Some(tooltip) = &self.0.tooltip {
+        write!(f, "{{display={}}}", self.display)?;
+        if let Some(tooltip) = &self.tooltip {
             write!(f, "{{tooltip={tooltip}}}")?;
         }
         writeln!(f)
@@ -229,13 +232,13 @@ impl ToolbarControl for HelpButtonControl {
     }
 }
 
-impl Display for ExtcapFormatter<&HelpButtonControl> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "control {{number={}}}", self.0.control_number())?;
+impl PrintSentence for HelpButtonControl {
+    fn format_sentence(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "control {{number={}}}", self.control_number())?;
         write!(f, "{{type=button}}")?;
         write!(f, "{{role=help}}")?;
-        write!(f, "{{display={}}}", self.0.display)?;
-        if let Some(tooltip) = &self.0.tooltip {
+        write!(f, "{{display={}}}", self.display)?;
+        if let Some(tooltip) = &self.tooltip {
             write!(f, "{{tooltip={tooltip}}}")?;
         }
         writeln!(f)
@@ -262,13 +265,13 @@ impl ToolbarControl for RestoreButtonControl {
     }
 }
 
-impl Display for ExtcapFormatter<&RestoreButtonControl> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "control {{number={}}}", self.0.control_number())?;
+impl PrintSentence for RestoreButtonControl {
+    fn format_sentence(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "control {{number={}}}", self.control_number())?;
         write!(f, "{{type=button}}")?;
         write!(f, "{{role=restore}}")?;
-        write!(f, "{{display={}}}", self.0.display)?;
-        if let Some(tooltip) = &self.0.tooltip {
+        write!(f, "{{display={}}}", self.display)?;
+        if let Some(tooltip) = &self.tooltip {
             write!(f, "{{tooltip={tooltip}}}")?;
         }
         writeln!(f)
@@ -298,15 +301,21 @@ pub struct SelectorControl {
 
 impl SelectorControl {
     /// Add an option to the selector dynamically.
-    pub fn add_value<'a>(&self, value: &'a str, display: Option<&'a str>) -> ControlPacket<'a> {
-        let payload: Cow<'a, str> = display
-            .map(|d| Cow::Owned(format!("{}\0{}", value, d)))
-            .unwrap_or_else(|| Cow::Borrowed(value));
+    pub fn set_value<'a>(&self, value: &'a str) -> ControlPacket<'a> {
         ControlPacket::new_with_payload(
             self.control_number(),
-            ControlCommand::Add,
-            payload.as_bytes().to_vec(),
+            ControlCommand::Set,
+            value.as_bytes(),
         )
+    }
+
+    /// Add an option to the selector dynamically.
+    pub fn add_value<'a>(&self, value: &'a str, display: Option<&'a str>) -> ControlPacket<'a> {
+        let payload_bytes: Cow<'a, [u8]> = match display {
+            Some(d) => Cow::Owned(format!("{}\0{}", value, d).as_bytes().to_vec()),
+            None => Cow::Borrowed(value.as_bytes()),
+        };
+        ControlPacket::new_with_payload(self.control_number(), ControlCommand::Add, payload_bytes)
     }
 
     /// Removes an option from the selector.
@@ -336,20 +345,20 @@ impl ToolbarControl for SelectorControl {
     }
 }
 
-impl Display for ExtcapFormatter<&SelectorControl> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl PrintSentence for SelectorControl {
+    fn format_sentence(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
             "control {{number={}}}{{type=selector}}",
-            self.0.control_number()
+            self.control_number()
         )?;
-        write!(f, "{{display={}}}", self.0.display)?;
-        if let Some(tooltip) = &self.0.tooltip {
+        write!(f, "{{display={}}}", self.display)?;
+        if let Some(tooltip) = &self.tooltip {
             write!(f, "{{tooltip={}}}", tooltip)?;
         }
         writeln!(f)?;
-        for value in self.0.options.iter() {
-            value.print_config(self.0);
+        for value in self.options.iter() {
+            value.format_sentence(f, self)?;
         }
         Ok(())
     }
@@ -371,19 +380,26 @@ pub struct SelectorControlOption {
 }
 
 impl SelectorControlOption {
-    /// Prints the extcap config for this option for Wireshark's consumption.
-    /// See the documentation for [`ExtcapFormatter`] for details.
-    pub fn print_config<C: ToolbarControl>(&self, control: &C) {
-        print!(
+    /// Writes the extcap config sentence for this option to the formatter. See
+    /// the documentation for [`ExtcapFormatter`][crate::ExtcapFormatter] for
+    /// details.
+    pub fn format_sentence<C: ToolbarControl>(
+        &self,
+        f: &mut std::fmt::Formatter<'_>,
+        control: &C,
+    ) -> std::fmt::Result {
+        write!(
+            f,
             "value {{control={}}}{{value={}}}{{display={}}}",
             control.control_number(),
             self.value,
             self.display,
-        );
+        )?;
         if self.default {
-            print!("{{default=true}}");
+            write!(f, "{{default=true}}")?;
         }
-        println!();
+        writeln!(f)?;
+        Ok(())
     }
 }
 
@@ -399,11 +415,13 @@ pub struct StringControl {
     /// The control number, a unique identifier for this control.
     pub control_number: u8,
     /// A user-visible label for this control.
+    #[builder(setter(into))]
     pub display: String,
-    // TODO: tooltip for other controls?
     /// An optional tooltip that is shown when hovering on the UI element.
+    #[builder(setter(into, strip_option))]
     pub tooltip: Option<String>,
     /// An optional placeholder that is shown when this control is empty.
+    #[builder(setter(into, strip_option))]
     pub placeholder: Option<String>,
     /// An optional regular expression string that validates the value on the
     /// field. If the value does not match the regular expression, the text
@@ -413,8 +431,11 @@ pub struct StringControl {
     /// Despite what the Wireshark documentation says, back slashes in the the
     /// regular expression string do not have to be escaped, just remember to
     /// use a Rust raw string when defining them. (e.g. r"\d\d\d\d").
+    #[builder(setter(into, strip_option))]
     pub validation: Option<String>,
-    // TODO: Default string value?
+    /// The default value
+    #[builder(default, setter(into, strip_option))]
+    pub default_value: Option<String>,
 }
 
 impl StringControl {
@@ -440,22 +461,25 @@ impl ToolbarControl for StringControl {
     }
 }
 
-impl Display for ExtcapFormatter<&StringControl> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl PrintSentence for StringControl {
+    fn format_sentence(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
             "control {{number={}}}{{type=string}}",
-            self.0.control_number()
+            self.control_number()
         )?;
-        write!(f, "{{display={}}}", self.0.display)?;
-        if let Some(tooltip) = &self.0.tooltip {
+        write!(f, "{{display={}}}", self.display)?;
+        if let Some(tooltip) = &self.tooltip {
             write!(f, "{{tooltip={}}}", tooltip)?;
         }
-        if let Some(placeholder) = &self.0.placeholder {
+        if let Some(placeholder) = &self.placeholder {
             write!(f, "{{placeholder={}}}", placeholder)?;
         }
-        if let Some(validation) = &self.0.validation {
+        if let Some(validation) = &self.validation {
             write!(f, "{{validation={}}}", validation)?;
+        }
+        if let Some(default_value) = &self.default_value {
+            write!(f, "{{default={}}}", default_value)?;
         }
         writeln!(f)
     }
@@ -478,7 +502,7 @@ impl Display for ExtcapFormatter<&StringControl> {
 /// extcap utility. The extcap must not rely on using those controls (they are
 /// optional) because of other capturing tools not using GUI (e.g. tshark,
 /// tfshark).
-pub trait ToolbarControl: PrintConfig {
+pub trait ToolbarControl: PrintSentence {
     /// The control number, a unique identifier for this control.
     fn control_number(&self) -> u8;
 }

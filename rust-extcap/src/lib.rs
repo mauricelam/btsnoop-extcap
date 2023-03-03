@@ -10,7 +10,7 @@
 #![deny(missing_docs)]
 
 use clap::Args;
-use config::{ConfigTrait, SelectorConfig};
+use config::{ConfigTrait, SelectorConfig, Reload};
 use controls::ToolbarControl;
 use interface::{Interface, Metadata};
 use std::{fmt::Display, path::PathBuf};
@@ -330,10 +330,9 @@ pub enum ReloadConfigError {
     UnknownConfig(String),
 
     /// The config given by Wireshark is found, but it is not a
-    /// [`SelectorConfig`] or
-    /// [`EditSelectorConfig`][config::EditSelectorConfig]. This configuration
-    /// is not expected to be invoked by Wireshark, as the
-    /// [`SelectorConfig::reload`] field only exists for the appropriate types.
+    /// [`SelectorConfig`]. This configuration is not expected to be invoked by
+    /// Wireshark, as the [`SelectorConfig::reload`] field only exists for the
+    /// appropriate types.
     #[error("Cannot reload config options for \"{0}\", which is not of type \"selector\".")]
     UnsupportedConfig(String),
 }
@@ -420,12 +419,12 @@ pub trait ExtcapApplication {
     /// implementation in stdout for Wireshark's consumption. Corresponds to the
     /// `--extcap-interfaces` argument in extcap.
     fn list_interfaces(&self) {
-        self.metadata().print_config();
+        self.metadata().print_sentence();
         for interface in self.interfaces() {
-            interface.print_config();
+            interface.print_sentence();
         }
         for control in self.toolbar_controls() {
-            control.print_config();
+            control.print_sentence();
         }
     }
 
@@ -439,7 +438,7 @@ pub trait ExtcapApplication {
             .find(|i| i.value == interface)
             .ok_or_else(|| ListConfigError::UnknownInterface(String::from(interface)))?;
         for config in self.configs(interface_obj) {
-            config.print_config();
+            config.print_sentence();
         }
         Ok(())
     }
@@ -461,12 +460,12 @@ pub trait ExtcapApplication {
             .as_any()
             .downcast_ref::<SelectorConfig>()
             .ok_or_else(|| ReloadConfigError::UnsupportedConfig(String::from(config)))?;
-        let reload_fn = selector_config
+        let Reload { reload_fn, .. } = selector_config
             .reload
             .as_ref()
             .ok_or_else(|| ReloadConfigError::UnsupportedConfig(String::from(config)))?;
         for opt in reload_fn() {
-            opt.print_config(selector_config.config_number);
+            opt.print_sentence(selector_config.config_number);
         }
         Ok(())
     }
@@ -481,13 +480,13 @@ pub trait ExtcapApplication {
             .find(|i| i.value == interface)
             .ok_or_else(|| PrintDltError::UnknownInterface(String::from(interface)))?
             .dlt
-            .print_config();
+            .print_sentence();
         Ok(())
     }
 }
 
-/// The extcap interface expects certain outputs to stdout to communicate with
-/// Wireshark, like
+/// The extcap interface expects certain output "sentences" to stdout to
+/// communicate with Wireshark, like
 ///
 /// ```text
 /// extcap {version=1.0}{help=Some help url}
@@ -507,25 +506,32 @@ pub trait ExtcapApplication {
 /// }));
 /// // Output: extcap {version=1.0}{help=Some help url}{display=Example extcap}
 /// ```
-pub struct ExtcapFormatter<T>(pub T)
+pub struct ExtcapFormatter<'a, T: ?Sized>(pub &'a T)
 where
     Self: Display;
 
-/// Elements that has a printable extcap config. See the documentation for
+/// Elements that has a printable extcap sentence. See the documentation for
 /// [`ExtcapFormatter`] for details.
-pub trait PrintConfig {
-    // TODO: fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+pub trait PrintSentence {
+    /// The extcap interface expects certain output "sentences" to stdout to
+    /// communicate with Wireshark, like
+    ///
+    /// ```text
+    /// extcap {version=1.0}{help=Some help url}
+    /// ```
+    ///
+    /// This function writes to the formatter `f` in that format.
+    fn format_sentence(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
 
-    /// Prints the configuration to stdout.
-    fn print_config(&self);
+    /// Prints the extcap sentence to stdout.
+    fn print_sentence(&self) {
+        print!("{}", ExtcapFormatter(self));
+    }
 }
 
-impl<T> PrintConfig for T
-where
-    for<'a> ExtcapFormatter<&'a T>: Display,
-{
-    fn print_config(&self) {
-        print!("{}", ExtcapFormatter(self));
+impl <'a, T: PrintSentence + ?Sized> Display for ExtcapFormatter<'a, T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.format_sentence(f)
     }
 }
 

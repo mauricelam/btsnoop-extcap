@@ -36,7 +36,6 @@ lazy_static! {
         .display("Message")
         .tooltip("Package message content")
         .required(true)
-        .save(false)
         .placeholder("Please enter a message here ...")
         .build();
     static ref CONFIG_VERIFY: BooleanConfig = BooleanConfig::builder()
@@ -133,6 +132,7 @@ lazy_static! {
         .display("Log File Test")
         .tooltip("The Log File Test")
         .group("Time / Log")
+        .file_extension_filter("Text files (*.txt);;XML files (*.xml)")
         .build();
     static ref CONFIG_RADIO: RadioConfig = RadioConfig::builder()
         .config_number(11)
@@ -233,6 +233,7 @@ lazy_static! {
             tooltip: Some(String::from("Package message content. Must start with a capital letter.")),
             placeholder: Some(String::from("Enter package message content here ...")),
             validation: Some(String::from(r"^[A-Z]+")),
+            default_value: None,
         },
         control_delay: SelectorControl {
             control_number: 1,
@@ -251,6 +252,7 @@ lazy_static! {
             control_number: 2,
             display: String::from("Verify"),
             tooltip: Some(String::from("Verify package control")),
+            default_value: false,
         },
         control_button: ButtonControl {
             control_number: 3,

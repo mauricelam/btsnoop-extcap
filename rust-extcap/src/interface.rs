@@ -1,8 +1,8 @@
 //! Module containg code to define the extcap interfaces. These are data used to
 //! popuplate the `Capture` or interface list in the main page of Wireshark.
 
-use crate::ExtcapFormatter;
-use std::{borrow::Cow, fmt::Display};
+use crate::PrintSentence;
+use std::borrow::Cow;
 use typed_builder::TypedBuilder;
 
 /// Enum defining the data link types.
@@ -27,12 +27,12 @@ pub struct Metadata {
     pub display_description: Cow<'static, str>,
 }
 
-impl Display for ExtcapFormatter<&Metadata> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl PrintSentence for Metadata {
+    fn format_sentence(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(
             f,
             "extcap {{version={}}}{{help={}}}{{display={}}}",
-            self.0.version, self.0.help_url, self.0.display_description
+            self.version, self.help_url, self.display_description
         )
     }
 }
@@ -75,12 +75,12 @@ pub struct Interface {
 ///     "interface {value=MyInterface}{display=My interface}",
 /// );
 /// ```
-impl Display for ExtcapFormatter<&Interface> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl PrintSentence for Interface {
+    fn format_sentence(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(
             f,
             "interface {{value={}}}{{display={}}}",
-            self.0.value, self.0.display,
+            self.value, self.display,
         )
     }
 }
@@ -89,7 +89,7 @@ impl Display for ExtcapFormatter<&Interface> {
 /// defined together with the [`Interface`][crate::interface::Interface] and
 /// used in the [`ExtcapApplication`][crate::ExtcapApplication]. But you can
 /// also use this class standalone and print out the resulting config using the
-/// [`print_config`][crate::PrintConfig::print_config] method.
+/// [`print_sentence`][crate::PrintConfig::print_sentence] method.
 #[derive(Clone, Debug, TypedBuilder)]
 pub struct Dlt {
     /// The data link type this packet should be analyzed as.
@@ -121,14 +121,14 @@ pub struct Dlt {
 ///     "dlt {number=1}{name=ETHERNET}{display=IEEE 802.3 Ethernet}\n",
 /// );
 /// ```
-impl Display for ExtcapFormatter<&Dlt> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl PrintSentence for Dlt {
+    fn format_sentence(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(
             f,
             "dlt {{number={}}}{{name={}}}{{display={}}}",
-            <u32>::from(self.0.data_link_type),
-            self.0.name,
-            self.0.display
+            <u32>::from(self.data_link_type),
+            self.name,
+            self.display
         )
     }
 }
