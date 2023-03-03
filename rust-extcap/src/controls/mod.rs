@@ -17,9 +17,15 @@ use typed_builder::TypedBuilder;
 
 use crate::PrintSentence;
 
-use {asynchronous::ExtcapControlSenderTrait as _, synchronous::ExtcapControlSenderTrait as _};
+#[cfg(feature = "async")]
+use asynchronous::ExtcapControlSenderTrait as _;
+#[cfg(feature = "sync")]
+use synchronous::ExtcapControlSenderTrait as _;
 
+#[cfg(feature = "async")]
 pub mod asynchronous;
+
+#[cfg(feature = "sync")]
 pub mod synchronous;
 
 /// A `ToolbarControl` that can be enabled or disabled.
@@ -584,12 +590,13 @@ impl<'a> ControlPacket<'a> {
     }
 
     /// Sends this control packet to Wireshark using the given `sender`.
+    #[cfg(feature = "sync")]
     pub fn send(self, sender: &mut synchronous::ExtcapControlSender) -> std::io::Result<()> {
         sender.send(self)
     }
 
-    // TODO: Add feature for async
     /// Sends this control packet to Wireshark using the given `sender`.
+    #[cfg(feature = "async")]
     pub async fn send_async(
         self,
         sender: &mut asynchronous::ExtcapControlSender,
