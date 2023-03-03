@@ -605,7 +605,6 @@ impl<'a> ControlPacket<'a> {
     }
 }
 
-// TODO: Better APIs for handling incoming control packets?
 
 /// The control command for the control packet. Note that a `ControlCommand` is
 /// not valid for all control types, for example, the `Remove` command is

@@ -46,6 +46,12 @@ impl std::fmt::Debug for Reload {
 /// drop-down list. The list of options should have default=true on exactly one
 /// item.
 ///
+/// Typically, these configs are created in a `lazy_static`, either as their own
+/// static refs, or as fields of your `ExtcapApplication` implementation, and
+/// then returned from
+/// [`ExtcapApplication::configs`][crate::ExtcapApplication::configs].
+///
+/// ## Example
 /// ```
 /// use rust_extcap::config::*;
 ///
@@ -132,6 +138,12 @@ generate_config_ext!(SelectorConfig);
 /// A list of radio buttons for the user to choose one value from. The list of
 /// options should have exactly one item with default=true.
 ///
+/// Typically, these configs are created in a `lazy_static`, either as their own
+/// static refs, or as fields of your `ExtcapApplication` implementation, and
+/// then returned from
+/// [`ExtcapApplication::configs`][crate::ExtcapApplication::configs].
+///
+/// ## Example
 /// ```
 /// use rust_extcap::config::*;
 ///
@@ -208,6 +220,12 @@ generate_config_ext!(RadioConfig);
 /// example below, then `--multi if1,if2a,if2b` will be passed in the command
 /// line.
 ///
+/// Typically, these configs are created in a `lazy_static`, either as their own
+/// static refs, or as fields of your `ExtcapApplication` implementation, and
+/// then returned from
+/// [`ExtcapApplication::configs`][crate::ExtcapApplication::configs].
+///
+/// ## Example
 /// ```
 /// use rust_extcap::config::*;
 ///
@@ -236,7 +254,8 @@ generate_config_ext!(RadioConfig);
 /// );
 /// ```
 ///
-/// To parse those values as a `vec`, you can use the `value_delimiter` option in `clap`.
+/// To parse those values as a `vec`, you can use the `value_delimiter` option
+/// in `clap`.
 ///
 /// ```ignore
 /// #[arg(long, value_delimiter = ',')]
@@ -299,21 +318,21 @@ pub struct MultiCheckValue {
     /// and this field is `bar`, then `--foo bar` will be passed to this extcap
     /// program during capturing.
     #[builder(setter(into))]
-    value: String,
+    pub value: String,
     /// The user-friendly label for this check box.
     #[builder(setter(into))]
-    display: String,
+    pub display: String,
     /// The default value for this check box, whether it is checked or not.
     #[builder(default = false)]
-    default_value: bool,
+    pub default_value: bool,
     /// Whether this checkbox is enabled or not.
     #[builder(default = true)]
-    enabled: bool,
+    pub enabled: bool,
     /// The list of children checkboxes. Children check boxes will be indented
     /// under this check box in the UI, but does not change how the value gets
     /// sent to the extcap program.
     #[builder(default, setter(into))]
-    children: Vec<MultiCheckValue>,
+    pub children: Vec<MultiCheckValue>,
 }
 
 impl PrintSentence for (&MultiCheckValue, u8, Option<&MultiCheckValue>) {
@@ -329,7 +348,11 @@ impl PrintSentence for (&MultiCheckValue, u8, Option<&MultiCheckValue>) {
         }
         writeln!(f)?;
         for c in config.children.iter() {
-            write!(f, "{}", ExtcapFormatter(&(c, *config_number, Some(*config))))?;
+            write!(
+                f,
+                "{}",
+                ExtcapFormatter(&(c, *config_number, Some(*config)))
+            )?;
         }
         Ok(())
     }
@@ -338,6 +361,12 @@ impl PrintSentence for (&MultiCheckValue, u8, Option<&MultiCheckValue>) {
 /// This provides a field for entering a numeric value of the given data type. A
 /// default value may be provided, as well as a range.
 ///
+/// Typically, these configs are created in a `lazy_static`, either as their own
+/// static refs, or as fields of your `ExtcapApplication` implementation, and
+/// then returned from
+/// [`ExtcapApplication::configs`][crate::ExtcapApplication::configs].
+///
+/// ## Example
 /// ```
 /// use rust_extcap::config::*;
 ///
@@ -407,6 +436,12 @@ generate_config_ext!(LongConfig);
 /// This provides a field for entering a numeric value of the given data type. A
 /// default value may be provided, as well as a range.
 ///
+/// Typically, these configs are created in a `lazy_static`, either as their own
+/// static refs, or as fields of your `ExtcapApplication` implementation, and
+/// then returned from
+/// [`ExtcapApplication::configs`][crate::ExtcapApplication::configs].
+///
+/// ## Example
 /// ```
 /// use rust_extcap::config::*;
 ///
@@ -476,6 +511,12 @@ generate_config_ext!(IntegerConfig);
 /// This provides a field for entering a numeric value of the given data type. A
 /// default value may be provided, as well as a range.
 ///
+/// Typically, these configs are created in a `lazy_static`, either as their own
+/// static refs, or as fields of your `ExtcapApplication` implementation, and
+/// then returned from
+/// [`ExtcapApplication::configs`][crate::ExtcapApplication::configs].
+///
+/// ## Example
 /// ```
 /// use rust_extcap::config::*;
 ///
@@ -545,6 +586,12 @@ generate_config_ext!(UnsignedConfig);
 /// This provides a field for entering a numeric value of the given data type. A
 /// default value may be provided, as well as a range.
 ///
+/// Typically, these configs are created in a `lazy_static`, either as their own
+/// static refs, or as fields of your `ExtcapApplication` implementation, and
+/// then returned from
+/// [`ExtcapApplication::configs`][crate::ExtcapApplication::configs].
+///
+/// ## Example
 /// ```
 /// use rust_extcap::config::*;
 ///
@@ -613,6 +660,12 @@ generate_config_ext!(DoubleConfig);
 
 /// A field for entering a text value.
 ///
+/// Typically, these configs are created in a `lazy_static`, either as their own
+/// static refs, or as fields of your `ExtcapApplication` implementation, and
+/// then returned from
+/// [`ExtcapApplication::configs`][crate::ExtcapApplication::configs].
+///
+/// ## Example
 /// ```
 /// use rust_extcap::config::*;
 ///
@@ -671,7 +724,9 @@ pub struct StringConfig {
     /// This option is undocumented, and does not behave correctly when set to
     /// false in my testing. Perhaps related to
     /// <https://gitlab.com/wireshark/wireshark/-/issues/18487>.
-    #[deprecated(note="This is undocumented, and does not behave correctly when set to false in my testing.")]
+    #[deprecated(
+        note = "This is undocumented, and does not behave correctly when set to false in my testing."
+    )]
     #[builder(default = true)]
     pub save: bool,
 }
@@ -709,6 +764,12 @@ generate_config_ext!(StringConfig);
 /// A field for entering text value, but with its value masked in the user
 /// interface. The value of a password field is not saved by Wireshark.
 ///
+/// Typically, these configs are created in a `lazy_static`, either as their own
+/// static refs, or as fields of your `ExtcapApplication` implementation, and
+/// then returned from
+/// [`ExtcapApplication::configs`][crate::ExtcapApplication::configs].
+///
+/// ## Example
 /// ```
 /// use rust_extcap::config::*;
 ///
@@ -787,6 +848,12 @@ generate_config_ext!(PasswordConfig);
 
 /// A config that is displayed as a date/time editor.
 ///
+/// Typically, these configs are created in a `lazy_static`, either as their own
+/// static refs, or as fields of your `ExtcapApplication` implementation, and
+/// then returned from
+/// [`ExtcapApplication::configs`][crate::ExtcapApplication::configs].
+///
+/// ## Example
 /// ```
 /// use rust_extcap::config::*;
 ///
@@ -845,6 +912,12 @@ generate_config_ext!(TimestampConfig);
 
 /// Lets the user provide a file path.
 ///
+/// Typically, these configs are created in a `lazy_static`, either as their own
+/// static refs, or as fields of your `ExtcapApplication` implementation, and
+/// then returned from
+/// [`ExtcapApplication::configs`][crate::ExtcapApplication::configs].
+///
+/// ## Example
 /// ```
 /// use rust_extcap::config::*;
 ///
@@ -897,7 +970,7 @@ pub struct FileSelectConfig {
     /// high level detail can be found in this commit:
     /// <https://gitlab.com/wireshark/wireshark/-/commit/0d47113ddc53714ecd6d3c1b58b694321649d89e>
     #[builder(default, setter(into, strip_option))]
-    pub file_extension_filter: Option<String>
+    pub file_extension_filter: Option<String>,
 }
 
 impl PrintSentence for FileSelectConfig {
@@ -925,6 +998,12 @@ generate_config_ext!(FileSelectConfig);
 
 /// A checkbox configuration with a true/false value.
 ///
+/// Typically, these configs are created in a `lazy_static`, either as their own
+/// static refs, or as fields of your `ExtcapApplication` implementation, and
+/// then returned from
+/// [`ExtcapApplication::configs`][crate::ExtcapApplication::configs].
+///
+/// ## Example
 /// ```
 /// use rust_extcap::config::*;
 ///

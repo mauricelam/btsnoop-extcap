@@ -27,6 +27,22 @@ pub struct Metadata {
     pub display_description: Cow<'static, str>,
 }
 
+/// ## Example
+///
+/// ```
+/// # use rust_extcap::ExtcapFormatter;
+/// use rust_extcap::interface::Metadata;
+///
+/// let metadata = Metadata {
+///     version: "3.2.1-test".into(),
+///     help_url: "http://www.wireshark.org".into(),
+///     display_description: "Just for testing".into(),
+/// };
+/// assert_eq!(
+///     format!("{}", ExtcapFormatter(&metadata)),
+///     "extcap {version=3.2.1-test}{help=http://www.wireshark.org}{display=Just for testing}\n"
+/// )
+/// ```
 impl PrintSentence for Metadata {
     fn format_sentence(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(
@@ -89,7 +105,7 @@ impl PrintSentence for Interface {
 /// defined together with the [`Interface`][crate::interface::Interface] and
 /// used in the [`ExtcapApplication`][crate::ExtcapApplication]. But you can
 /// also use this class standalone and print out the resulting config using the
-/// [`print_sentence`][crate::PrintConfig::print_sentence] method.
+/// [`print_sentence`][crate::PrintSentence::print_sentence] method.
 #[derive(Clone, Debug, TypedBuilder)]
 pub struct Dlt {
     /// The data link type this packet should be analyzed as.
@@ -107,6 +123,7 @@ pub struct Dlt {
 
 /// Print the configuration line suitable for use with `--extcap-dlts`.
 ///
+/// ## Example
 /// ```
 /// use rust_extcap::config::ExtcapFormatter;
 /// use rust_extcap::dlt::{DataLink, Dlt};

@@ -162,18 +162,46 @@ pub struct ExtcapArgs {
     #[arg(long, requires = "capture")]
     pub extcap_control_out: Option<PathBuf>,
 
-    /// A selector may be reloaded from the configuration dialog of the extcap
-    /// application within Wireshark. With the reload argument (defaults to
-    /// false), the entry can be marked as reloadable.
+    /// A [`SelectorConfig`] may be reloaded from the configuration dialog of
+    /// the extcap application within Wireshark. With [`SelectorConfig::reload`]
+    /// (defaults to `false`), the entry can be marked as reloadable.
     ///
-    /// ```text
-    /// arg {number=3}{call=--remote}{display=Remote Channel}{tooltip=Remote Channel Selector}{type=selector}{reload=true}{placeholder=Load interfaces...}
+    /// ```
+    /// SelectorConfig::builder()
+    ///     .config_number(3)
+    ///     .call("remote")
+    ///     .display("Remote Channel")
+    ///     .tooltip("Remote Channel Selector")
+    ///     .reload(Reload {
+    ///         label: String::from("Load interfaces..."),
+    ///         reload_fn: || {
+    ///             vec![
+    ///                 ConfigOptionValue::builder()
+    ///                     .value("if3")
+    ///                     .display("Remote Interface 3")
+    ///                     .default(true)
+    ///                     .build(),
+    ///                 ConfigOptionValue::builder()
+    ///                     .value("if4")
+    ///                     .display("Remote Interface 4")
+    ///                     .build(),
+    ///             ]
+    ///         }
+    ///     })
+    ///     .default_options([
+    ///         ConfigOptionValue::builder()
+    ///             .value("if1")
+    ///             .display("Remote1")
+    ///             .default(true)
+    ///             .build(),
+    ///         ConfigOptionValue::builder().value("if2").display("Remote2").build(),
+    ///     ])
+    ///     .build();
     /// ```
     ///
     /// After this has been defined, the user will get a button displayed in the
     /// configuration dialog for this extcap application, with the text "Load
-    /// interfaces...​" in this case, and a generic "Reload" text if no text has
-    /// been provided.
+    /// interfaces...​".
     ///
     /// The extcap utility is then called again with all filled out arguments
     /// and the additional parameter `--extcap-reload-option <option_name>`. It
@@ -232,10 +260,9 @@ impl ExtcapArgs {
 pub enum ExtcapError {
     /// The inputs given are not expected input from Wireshark. This can happen
     /// for example, when the user tries to run the application directly from
-    /// command line. When this happens, you can print the installation
-    /// instructions using the [`print_installation_instructions`] function,
-    /// which will tell the user create a symlink from the Wireshark extcap
-    /// directory to the installed binary location.
+    /// command line. When this happens, you can print out the
+    /// [`installation_instructions`], to help the user install this in the
+    /// right location.
     #[error(
         "Missing input extcap command. Maybe you need to install this with Wireshark instead?"
     )]
@@ -350,13 +377,17 @@ pub enum ListConfigError {
     UnknownInterface(String),
 }
 
-/// Trait to help implement an extcap program. This application can be run by
-/// passing it into [`ExtcapArgs::run`]. Since during a capture session,
-/// Wireshark can call the extcap program multiple times (e.g. to get the list
-/// of interfaces, configs, and DLTs), implementations of the application should
-/// be consistent across multiple invocations. So it is recommended to put the
-/// application in a `lazy_static` to make sure that the application
-/// initialization doesn't depend on program state or command line arguments.
+/// The main entry point to implementing an extcap program. This application can
+/// be run by passing it into [`ExtcapArgs::run`]. Create a struct with
+/// `#[derive(clap::Parser)]`, and add [`ExtcapArgs`] as one of the fields with
+/// the `#[command(flatten)]` attribute.
+///
+/// Since during a capture session, Wireshark can call the extcap program
+/// multiple times (e.g. to get the list of interfaces, configs, and DLTs),
+/// implementations of the application should be consistent across multiple
+/// invocations. So it is recommended to put the application in a `lazy_static`
+/// and make sure that the application initialization doesn't depend on
+/// in-memory program state.
 ///
 /// There 4 things need to be provided for an extcap implementation:
 /// 1. [`metadata`][Self::metadata]: The version information and metadata for
@@ -367,6 +398,7 @@ pub enum ListConfigError {
 ///        controls shown in the Wireshark UI.
 /// 4. [`configs`][Self::configs]: Optional, a list of UI configuration options
 ///        that the user can change.
+///
 /// ```
 /// #use lazy_static::lazy_static;
 /// use clap::Parser;
@@ -535,15 +567,14 @@ impl <'a, T: PrintSentence + ?Sized> Display for ExtcapFormatter<'a, T> {
     }
 }
 
-/// Creates a [`Metadata`] from information in `Cargo.toml`.
+/// Creates a [`Metadata`] from information in `Cargo.toml`, using the mapping
+/// as follows:
 ///
-/// ----------------------------------------
 /// | Metadata field       | Cargo.toml    |
-/// ----------------------------------------
+/// |----------------------|---------------|
 /// |`version`             | `version`     |
 /// |`help_url`            | `homepage`    |
 /// |`display_description` | `description` |
-/// ----------------------------------------
 #[macro_export]
 macro_rules! cargo_metadata {
     () => {

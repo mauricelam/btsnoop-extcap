@@ -53,26 +53,27 @@ lazy_static! {
         .reload(Reload {
             label: String::from("Load interfaces..."),
             reload_fn: || {
-            vec![
-            ConfigOptionValue::builder()
-                .value("if1")
-                .display("Remote Interface 1")
-                .build(),
-            ConfigOptionValue::builder()
-                .value("if2")
-                .display("Remote Interface 2")
-                .default(true)
-                .build(),
-            ConfigOptionValue::builder()
-                .value("if3")
-                .display("Remote Interface 3")
-                .build(),
-            ConfigOptionValue::builder()
-                .value("if4")
-                .display("Remote Interface 4")
-                .build(),
-            ]
-        }})
+                vec![
+                    ConfigOptionValue::builder()
+                        .value("if1")
+                        .display("Remote Interface 1")
+                        .build(),
+                    ConfigOptionValue::builder()
+                        .value("if2")
+                        .display("Remote Interface 2")
+                        .default(true)
+                        .build(),
+                    ConfigOptionValue::builder()
+                        .value("if3")
+                        .display("Remote Interface 3")
+                        .build(),
+                    ConfigOptionValue::builder()
+                        .value("if4")
+                        .display("Remote Interface 4")
+                        .build(),
+                ]
+            }
+        })
         .default_options([
             ConfigOptionValue::builder()
                 .value("if1")
