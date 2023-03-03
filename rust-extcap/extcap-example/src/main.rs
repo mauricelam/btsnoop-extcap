@@ -51,8 +51,9 @@ lazy_static! {
         .call("remote")
         .display("Remote Channel")
         .tooltip("Remote Channel Selector")
-        .placeholder("Load interfaces ...")
-        .reload(Box::new(|| {
+        .reload(Reload {
+            label: String::from("Load interfaces..."),
+            reload_fn: || {
             vec![
             ConfigOptionValue::builder()
                 .value("if1")
@@ -72,7 +73,7 @@ lazy_static! {
                 .display("Remote Interface 4")
                 .build(),
             ]
-        }))
+        }})
         .default_options([
             ConfigOptionValue::builder()
                 .value("if1")
