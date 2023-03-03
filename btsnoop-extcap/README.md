@@ -19,7 +19,7 @@ $ mkdir -p ~/.config/wireshark/extcap/ && \
   ln -s "~/.cargo/bin/btsnoop-extcap" ~/.config/wireshark/extcap/btsnoop-extcap
 ```
 
-Root is required on the selected Android device.
+_Root is required on the selected Android device._
 
 This extcap plugin is designed to be used with [Wireshark](https://www.wireshark.org/) or tshark,
 and will show a live stream of Bluetooth HCI events from the selected device.
