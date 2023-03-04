@@ -51,7 +51,7 @@ pub enum ControlChannelError {
     ReadControl(#[from] ReadControlError),
 
     /// Error returned when the control packet cannot be sent on the channel.
-    /// This is caused by an underlying [`mpsc::SendError`].
+    /// This is caused by an underlying [`SendError`].
     #[error("Cannot send control packet to channel")]
     CannotSend,
 }

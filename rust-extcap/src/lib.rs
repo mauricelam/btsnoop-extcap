@@ -1,6 +1,108 @@
-//! Utilities for working with the extcap interface. The extcap interface is a
-//! versatile plugin interface used by Wireshark to allow external binaries to
-//! act as capture interfaces.
+//! Write [extcap](https://www.wireshark.org/docs/man-pages/extcap.html)
+//! programs in Rust.
+//!
+//! The extcap interface is a versatile plugin interface used by Wireshark to
+//! allow external binaries to act as capture interfaces. The extcap interface
+//! itself is generic and can be used by applications other than Wireshark, like
+//! Wireshark's command line sibling `tshark`. For the sake of brevity, in the
+//! documentation we will refer to the host application simply as Wireshark.
+//!
+//! ### Extcap overview
+//!
+//! 1. `--extcap-interfaces`: In this step, Wireshark asks the extcap for its
+//!    list of supported interfaces, version metadata, and the list of toolbar
+//!    controls.
+//! 2. `--extcap-dlts`: Invoked once for each interface, Wireshark asks the
+//!    extcap program for the data link type associated with the interface.
+//! 3. `--extcap-config`: Invoked for each interface upon user request,
+//!    Wireshark asks the extcap program for a list of configurations to
+//!    populate a config dialog in the UI.
+//! 4. `--capture`: The main part of the extcap program – invoked once when the
+//!    user selects an interface for capture, to tell the extcap to start
+//!    capturing packets. Captured packets should be written to the `--fifo` in
+//!    the PCAP format.
+//!
+//! ## Getting started
+//!
+//! To create an extcap using this library, these are the high level steps:
+//!
+//! 1. Create a struct with `#[derive(clap::Parser)]`, and add [`ExtcapArgs`] as
+//!    one of the fields with the `#[command(flatten)]` attribute.
+//!
+//!    ```
+//!    #[derive(Debug, clap::Parser)]
+//!    struct AppArgs {
+//!        #[command(flatten)]
+//!        extcap: rust_extcap::ExtcapArgs,
+//!
+//!        // Other args for extcap (see the `configs` module)
+//!    }
+//!    ```
+//!
+//! 2. Create a struct that implements [`ExtcapApplication`]. It is recommended
+//!    to define the application in a `lazy_static`. There 4 things need to be
+//!    provided for an extcap implementation:
+//!
+//!     1. [`metadata`][ExtcapApplication::metadata]: The version information
+//!            and metadata for this program, used by Wireshark to display in
+//!            the UI.
+//!     2. [`interfaces`][ExtcapApplication::interfaces]: The list of interfaces
+//!            that can be captured by this program.
+//!     3. [`toolbar_controls`][ExtcapApplication::toolbar_controls]: Optional,
+//!            a list of toolbar controls shown in the Wireshark UI.
+//!     4. [`configs`][ExtcapApplication::configs]: Optional, a list of UI
+//!            configuration options that the user can change.
+//!
+//! 3. In the `main` function, parse the arguments and call [`ExtcapArgs::run`].
+//!    Use the returned [`CaptureContext`] to start capturing packets, and write
+//!    the packets to [`CaptureContext::fifo`] using the
+//!    [`pcap_file`](https://docs.rs/pcap-file/latest/pcap_file/index.html)
+//!    crate.
+//!
+//!    ```ignore
+//!    fn main() -> anyhow::Result<()> {
+//!        if let Some(capture_context) = AppArgs::parse().extcap.run(&*APPLICATION)? {
+//!            // Run capture
+//!        }
+//!        Ok(())
+//!    }
+//!    ```
+//!
+//! # Example
+//!
+//! ```no_run
+//! # use lazy_static::lazy_static;
+//! use clap::Parser;
+//! use rust_extcap::{ExtcapApplication, ExtcapArgs};
+//! use rust_extcap::{interface::*, controls::*, config::*};
+//!
+//! struct ExampleExtcapApplication {}
+//! impl ExtcapApplication for ExampleExtcapApplication {
+//!       fn metadata(&self) -> &Metadata { todo!() }
+//!       fn interfaces(&self) -> &[Interface] { todo!() }
+//!       fn toolbar_controls(&self) -> Vec<&dyn ToolbarControl> { todo!() }
+//!       fn configs(&self, interface: &Interface) -> Vec<&dyn ConfigTrait> { todo!() }
+//! }
+//!
+//! #[derive(Debug, Parser)]
+//! struct AppArgs {
+//!     #[command(flatten)]
+//!     extcap: ExtcapArgs,
+//! }
+//!
+//! lazy_static! {
+//!     static ref APPLICATION: ExampleExtcapApplication = ExampleExtcapApplication {
+//!         // ...
+//!     };
+//! }
+//!
+//! fn main() -> anyhow::Result<()> {
+//!     if let Some(capture_context) = AppArgs::parse().extcap.run(&*APPLICATION)? {
+//!         // Run capture
+//!     }
+//!     Ok(())
+//! }
+//! ```
 //!
 //! References:
 //! * <https://www.wireshark.org/docs/wsdg_html_chunked/ChCaptureExtcap.html>
@@ -13,7 +115,11 @@ use clap::Args;
 use config::{ConfigTrait, Reload, SelectorConfig};
 use controls::ToolbarControl;
 use interface::{Interface, Metadata};
-use std::{fmt::Display, fs::File, path::PathBuf};
+use std::{
+    fmt::Display,
+    fs::File,
+    path::{Path, PathBuf},
+};
 use thiserror::Error;
 
 pub mod config;
@@ -244,106 +350,14 @@ impl ExtcapArgs {
     /// entry point for the extcap program. Implementations should call this
     /// from their `main` functions.
     ///
-    /// ```should_panic
-    /// # use lazy_static::lazy_static;
-    /// use clap::Parser;
-    /// use rust_extcap::{ExtcapArgs, RunCapture};
-    /// use rust_extcap::{interface::*, controls::*, config::*};
-    ///
-    /// struct ExampleExtcapApplication {}
-    /// impl rust_extcap::ExtcapApplication for ExampleExtcapApplication {
-    ///       fn metadata(&self) -> &Metadata { todo!() }
-    ///       fn interfaces(&self) -> &[Interface] { todo!() }
-    ///       fn toolbar_controls(&self) -> Vec<&dyn ToolbarControl> { todo!() }
-    ///       fn configs(&self, interface: &Interface) -> Vec<&dyn ConfigTrait> { todo!() }
-    /// }
-    ///
-    /// #[derive(Debug, Parser)]
-    /// struct AppArgs {
-    ///     #[command(flatten)]
-    ///     extcap: ExtcapArgs,
-    /// }
-    ///
-    /// lazy_static! {
-    ///     static ref APPLICATION: ExampleExtcapApplication = ExampleExtcapApplication {
-    ///         // ...
-    ///     };
-    /// }
-    ///
-    /// fn main() -> anyhow::Result<()> {
-    ///     if let Some(RunCapture { .. }) = AppArgs::parse().extcap.run(&*APPLICATION)? {
-    ///         // Run capture
-    ///     }
-    ///     Ok(())
-    /// }
-    /// ```
+    /// For detailed usage, see the [crate documentation][crate]
     pub fn run<App: ExtcapApplication>(
         &self,
         app: &App,
-    ) -> Result<Option<RunCapture>, ExtcapError> {
-        if self.capture {
-            let fifo_path = self.fifo.as_ref().ok_or(CaptureError::MissingFifo)?;
-            let fifo = File::create(fifo_path).map_err(CaptureError::Io)?;
-            let interface = self.extcap_interface.as_ref().ok_or(CaptureError::MissingInterface)?;
-            let extcap_control_in = self.extcap_control_in
-                .as_ref()
-                .map(|p| controls::synchronous::ChannelExtcapControlReader::spawn(p.to_owned()));
-            let extcap_control_out = self.extcap_control_out
-                .as_ref()
-                .map(|p| controls::synchronous::ExtcapControlSender::new(p));
-            Ok(Some(RunCapture {
-                interface,
-                // Note: It is important to open this file, so the file gets
-                // closed even if the implementation doesn't use it.
-                // Otherwise Wireshark will hang there waiting for the FIFO.
-                fifo,
-                extcap_control_in,
-                extcap_control_out,
-            }))
-        } else {
-            self.run_metadata(app).map(|_| None)
-        }
-    }
-
-    /// Runs the extcap program with the parsed arguments. This is the main
-    /// entry point for the extcap program. Implementations should call this
-    /// from their `main` functions.
-    #[cfg(feature = "async")]
-    pub async fn run_async<App: ExtcapApplication>(
-        &self,
-        app: &App,
-    ) -> Result<Option<RunCaptureAsync>, ExtcapError> {
-        if self.capture {
-            let fifo_path = self.fifo.as_ref().ok_or(CaptureError::MissingFifo)?;
-            let fifo = tokio::fs::File::create(fifo_path).await.map_err(CaptureError::Io)?;
-            let interface = self.extcap_interface.as_ref().ok_or(CaptureError::MissingInterface)?;
-            let extcap_control_in = self.extcap_control_in
-                .as_ref()
-                .map(|p| controls::asynchronous::ChannelExtcapControlReader::spawn(p.to_owned()));
-            let extcap_control_out = if let Some(p) = &self.extcap_control_out {
-                Some(controls::asynchronous::ExtcapControlSender::new(p).await)
-            } else {
-                None
-            };
-            // TODO: Change to CaptureContext struct and create the control pipes on demand.
-            Ok(Some(RunCaptureAsync {
-                interface,
-                // Note: It is important to open this file, so the file gets
-                // closed even if the implementation doesn't use it.
-                // Otherwise Wireshark will hang there waiting for the FIFO.
-                fifo,
-                extcap_control_in,
-                extcap_control_out,
-            }))
-        } else {
-            self.run_metadata(app).map(|_| None)
-        }
-    }
-
-    fn run_metadata<App: ExtcapApplication>(&self, app: &App) -> Result<(), ExtcapError> {
+    ) -> Result<Option<CaptureContext>, ExtcapError> {
         if self.extcap_interfaces {
             app.list_interfaces();
-            Ok(())
+            Ok(None)
         } else if let Some(interface) = &self.extcap_interface {
             if self.extcap_config {
                 if let Some(reload_config) = &self.extcap_reload_option {
@@ -351,10 +365,27 @@ impl ExtcapArgs {
                 } else {
                     app.list_configs(interface)?;
                 }
-                Ok(())
+                Ok(None)
             } else if self.extcap_dlts {
                 app.print_dlt(interface)?;
-                Ok(())
+                Ok(None)
+            } else if self.capture {
+                let fifo_path = self.fifo.as_ref().ok_or(CaptureError::MissingFifo)?;
+                let fifo = File::create(fifo_path).map_err(CaptureError::Io)?;
+                let interface = self
+                    .extcap_interface
+                    .as_ref()
+                    .ok_or(CaptureError::MissingInterface)?;
+                Ok(Some(CaptureContext {
+                    interface,
+                    // Note: It is important to open this file, so the file gets
+                    // closed even if the implementation doesn't use it.
+                    // Otherwise Wireshark will hang there waiting for the FIFO.
+                    fifo,
+                    fifo_path,
+                    extcap_control_in: &self.extcap_control_in,
+                    extcap_control_out: &self.extcap_control_out,
+                }))
             } else {
                 Err(ExtcapError::NotExtcapInput)
             }
@@ -396,9 +427,7 @@ pub enum ExtcapError {
 
 /// When this value is returned in [`ExtcapArgs::run`], the implementation
 /// should use these returned values to start capturing packets.
-///
-/// TODO: Add example?
-pub struct RunCapture<'a> {
+pub struct CaptureContext<'a> {
     /// The interface to run this capture on. This is the string previously
     /// defined in [`Interface::value`].
     pub interface: &'a str,
@@ -407,38 +436,118 @@ pub struct RunCapture<'a> {
     /// [`pcap-file`](https://docs.rs/pcap-file/latest/pcap_file/) crate to help
     /// format the packets.
     pub fifo: std::fs::File,
+    fifo_path: &'a Path,
     /// The extcap control reader if the `--extcap-control-in` argument is
     /// provided on the command line. This is used to receive arguments from the
     /// toolbar controls and other control messages from Wireshark.
-    pub extcap_control_in: Option<controls::synchronous::ChannelExtcapControlReader>,
+    pub extcap_control_in: &'a Option<std::path::PathBuf>,
     /// The extcap control sender if the `--extcap-control-out` argument is
     /// provided on the command line. This is used to send control messages to
     /// Wireshark to modify the toolbar controls and show status messages.
-    pub extcap_control_out: Option<controls::synchronous::ExtcapControlSender>,
+    pub extcap_control_out: &'a Option<std::path::PathBuf>,
 }
 
-/// When this value is returned in [`ExtcapArgs::run`], the implementation
-/// should use these returned values to start capturing packets.
-///
-/// TODO: Add example?
-#[cfg(feature = "async")]
-pub struct RunCaptureAsync<'a> {
-    /// The interface to run this capture on. This is the string previously
-    /// defined in [`Interface::value`].
-    pub interface: &'a str,
-    /// The fifo to write the output packets to. The output packets should be
-    /// written in PCAP format. Implementations can use the
-    /// [`pcap-file`](https://docs.rs/pcap-file/latest/pcap_file/) crate to help
-    /// format the packets.
-    pub fifo: tokio::fs::File,
-    /// The extcap control reader if the `--extcap-control-in` argument is
-    /// provided on the command line. This is used to receive arguments from the
-    /// toolbar controls and other control messages from Wireshark.
-    pub extcap_control_in: Option<controls::asynchronous::ChannelExtcapControlReader>,
-    /// The extcap control sender if the `--extcap-control-out` argument is
-    /// provided on the command line. This is used to send control messages to
-    /// Wireshark to modify the toolbar controls and show status messages.
-    pub extcap_control_out: Option<controls::asynchronous::ExtcapControlSender>,
+impl<'a> CaptureContext<'a> {
+    /// Create a new control sender for this capture, if `--extcap-control-out`
+    /// is specified in the command line. The control sender is used to send
+    /// control messages to Wireshark to modify
+    /// [`ToolbarControls`][controls::ToolbarControl] and communicate other
+    /// states.
+    #[cfg(feature = "sync")]
+    pub fn new_control_sender(&self) -> Option<controls::synchronous::ExtcapControlSender> {
+        self.extcap_control_out
+            .as_ref()
+            .map(|p| controls::synchronous::ExtcapControlSender::new(p))
+    }
+
+    /// Create a new control sender for this capture, if `--extcap-control-out`
+    /// is specified in the command line. The control sender is used to send
+    /// control messages to Wireshark to modify
+    /// [`ToolbarControls`][controls::ToolbarControl] and communicate other
+    /// states.
+    #[cfg(feature = "async")]
+    pub async fn new_control_sender_async(
+        &self,
+    ) -> Option<controls::asynchronous::ExtcapControlSender> {
+        if let Some(p) = &self.extcap_control_out {
+            Some(controls::asynchronous::ExtcapControlSender::new(p).await)
+        } else {
+            None
+        }
+    }
+
+    /// Spawn a new channel control reader, which also spawns a thread to
+    /// continuously forward control packets from the input fifo to the reader's
+    /// channel.
+    ///
+    /// See the documentations on
+    /// [`ChannelExtcapControlReader`][controls::synchronous::ChannelExtcapControlReader] for
+    /// more.
+    #[cfg(feature = "sync")]
+    pub fn spawn_channel_control_reader(
+        &self,
+    ) -> Option<controls::synchronous::ChannelExtcapControlReader> {
+        self.extcap_control_in
+            .as_ref()
+            .map(|p| controls::synchronous::ChannelExtcapControlReader::spawn(p.to_owned()))
+    }
+
+    /// Spawn a new channel control reader, which also spawns a thread to
+    /// continuously forward control packets from the input fifo to the reader's
+    /// channel.
+    ///
+    /// See the documentations on
+    /// [`ChannelExtcapControlReader`][controls::asynchronous::ChannelExtcapControlReader] for
+    /// more.
+    #[cfg(feature = "async")]
+    pub fn spawn_channel_control_reader_async(
+        &self,
+    ) -> Option<controls::asynchronous::ChannelExtcapControlReader> {
+        self.extcap_control_in
+            .as_ref()
+            .map(|p| controls::asynchronous::ChannelExtcapControlReader::spawn(p.to_owned()))
+    }
+
+    /// Create a new
+    /// [`ExtcapControlReader`][controls::synchronous::ExtcapControlReader] for
+    /// this capture context. `ExtcapControlReader` reads from the control
+    /// pipe given in this context synchronously, and blocks if there are no
+    /// incoming control packets waiting to be processed.
+    ///
+    /// For a higher level, easier to use API, see
+    /// [`spawn_channel_control_reader`][Self::spawn_channel_control_reader].
+    #[cfg(feature = "sync")]
+    pub fn new_control_reader(&self) -> Option<controls::synchronous::ExtcapControlReader> {
+        self.extcap_control_in
+            .as_ref()
+            .map(|p| controls::synchronous::ExtcapControlReader::new(p))
+    }
+
+    /// Create a new
+    /// [`ExtcapControlReader`][controls::asynchronous::ExtcapControlReader] for
+    /// this capture context. `ExtcapControlReader` reads from the control
+    /// pipe given in this context synchronously, and blocks if there are no
+    /// incoming control packets waiting to be processed.
+    ///
+    /// For a higher level, easier to use API, see
+    /// [`spawn_channel_control_reader`][Self::spawn_channel_control_reader].
+    #[cfg(feature = "async")]
+    pub async fn new_control_reader_async(
+        &self,
+    ) -> Option<controls::asynchronous::ExtcapControlReader> {
+        if let Some(p) = &self.extcap_control_in {
+            Some(controls::asynchronous::ExtcapControlReader::new(p).await)
+        } else {
+            None
+        }
+    }
+
+    /// Create an async version of the fifo that is used to write captured
+    /// packets to in the PCAP format.
+    #[cfg(feature = "async")]
+    pub async fn fifo_async(&self) -> tokio::io::Result<tokio::fs::File> {
+        tokio::fs::File::create(self.fifo_path).await
+    }
 }
 
 /// Get the installation instructions. This is useful to show if the program is
@@ -538,62 +647,7 @@ pub enum ListConfigError {
 }
 
 /// The main entry point to implementing an extcap program. This application can
-/// be run by passing it into [`ExtcapArgs::run`]. Create a struct with
-/// `#[derive(clap::Parser)]`, and add [`ExtcapArgs`] as one of the fields with
-/// the `#[command(flatten)]` attribute.
-///
-/// Since during a capture session, Wireshark can call the extcap program
-/// multiple times (e.g. to get the list of interfaces, configs, and DLTs),
-/// implementations of the application should be consistent across multiple
-/// invocations. So it is recommended to put the application in a `lazy_static`
-/// and make sure that the application initialization doesn't depend on
-/// in-memory program state.
-///
-/// There 4 things need to be provided for an extcap implementation:
-/// 1. [`metadata`][Self::metadata]: The version information and metadata for
-///        this program, used by Wireshark to display in the UI.
-/// 2. [`interfaces`][Self::interfaces]: The list of interfaces that can be
-///        captured by this program.
-/// 3. [`toolbar_controls`][Self::toolbar_controls]: Optional, a list of toolbar
-///        controls shown in the Wireshark UI.
-/// 4. [`configs`][Self::configs]: Optional, a list of UI configuration options
-///        that the user can change.
-///
-/// ```should_panic
-/// # use lazy_static::lazy_static;
-/// use clap::Parser;
-/// use rust_extcap::{ExtcapArgs, ExtcapApplication, RunCapture};
-/// use rust_extcap::{config::*, controls::*, interface::*};
-///
-/// struct ExampleExtcapApplication {}
-///
-/// impl ExtcapApplication for ExampleExtcapApplication {
-///    fn metadata(&self) -> &Metadata { todo!() }
-///    fn interfaces(&self) -> &[Interface] { todo!() }
-///    fn toolbar_controls(&self) -> Vec<&dyn ToolbarControl> { todo!() }
-///    fn configs(&self, interface: &Interface) -> Vec<&dyn ConfigTrait> { todo!() }
-/// }
-///
-/// lazy_static! {
-///     static ref APPLICATION: ExampleExtcapApplication = ExampleExtcapApplication {
-///         // ...
-///     };
-/// }
-///
-/// #[derive(Debug, Parser)]
-/// struct AppArgs {
-///     #[command(flatten)]
-///     extcap: ExtcapArgs,
-/// }
-///
-/// fn main() -> anyhow::Result<()> {
-///     let args = AppArgs::parse();
-///     if let Some(RunCapture {..}) = args.extcap.run(&*APPLICATION)? {
-///         // run capture
-///     }
-///     Ok(())
-/// }
-/// ```
+/// be run by passing it into [`ExtcapArgs::run`].
 pub trait ExtcapApplication {
     /// Returns the metadata like version info and help URL for this program.
     /// This is used by Wireshark to display in the UI.

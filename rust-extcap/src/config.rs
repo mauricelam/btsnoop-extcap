@@ -721,12 +721,13 @@ pub struct StringConfig {
     /// saved by Wireshark, and will be automatically populated next time that
     /// interface is selected by the user.
     ///
-    /// This option is undocumented, and does not behave correctly when set to
-    /// false in my testing. Perhaps related to
+    /// Note: This option is undocumented in the Wireshark documentation, but
+    /// the functionality was added in
+    /// <https://gitlab.com/wireshark/wireshark/-/commit/97a1a50e200a6c50e0014dde7e8ec932c30190a1>.
+    ///
+    /// It does not behave correctly in some versions of Wireshark, with the
+    /// same symptoms described in
     /// <https://gitlab.com/wireshark/wireshark/-/issues/18487>.
-    #[deprecated(
-        note = "This is undocumented, and does not behave correctly when set to false in my testing."
-    )]
     #[builder(default = true)]
     pub save: bool,
 }
