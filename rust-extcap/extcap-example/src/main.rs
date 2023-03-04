@@ -9,8 +9,7 @@ use rust_extcap::{
     config::*,
     controls::synchronous::{ExtcapControlSender, ExtcapControlSenderTrait},
     controls::*,
-    interface::{Dlt, Interface, Metadata},
-    ExtcapApplication, ExtcapError, RunCapture,
+    interface::{Dlt, Interface, Metadata}, ExtcapApplication, ExtcapError,
 };
 use std::{
     fmt::Display,
@@ -446,12 +445,7 @@ fn main() -> anyhow::Result<()> {
     debug!("Running app");
     match args.extcap.run(&*APPLICATION) {
         Ok(None) => return Ok(()),
-        Ok(Some(RunCapture {
-            interface: _,
-            fifo,
-            mut extcap_control_in,
-            mut extcap_control_out,
-        })) => {
+        Ok(Some(capture_context)) => {
             anyhow::ensure!(args.delay <= 5, "Value for delay {} too high", args.delay);
             let mut app_state = CaptureState {
                 initialized: false,
@@ -469,18 +463,20 @@ fn main() -> anyhow::Result<()> {
             aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugi \
             at nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culp \
             a qui officia deserunt mollit anim id est laborum.";
-            if let (Some(in_pipe), Some(out_pipe)) =
-                (extcap_control_in.as_mut(), extcap_control_out.as_mut())
-            {
-                let packet = in_pipe.read_packet()?;
+            let mut controls = (
+                capture_context.spawn_channel_control_reader(),
+                capture_context.new_control_sender(),
+            );
+            if let (Some(control_reader), Some(control_sender)) = &mut controls {
+                let packet = control_reader.read_packet()?;
                 assert_eq!(packet.command, ControlCommand::Initialized);
 
                 APPLICATION
                     .control_logger
                     .clear_and_add_log(format!("Log started at {:?}", SystemTime::now()).into())
-                    .send(out_pipe)?;
+                    .send(control_sender)?;
                 control_write_defaults(
-                    out_pipe,
+                    control_sender,
                     &app_state.message,
                     app_state.delay,
                     app_state.verify,
@@ -492,15 +488,13 @@ fn main() -> anyhow::Result<()> {
                 endianness: pcap_file::Endianness::Big,
                 ..Default::default()
             };
-            let mut pcap_writer = PcapWriter::with_header(fifo, pcap_header).unwrap();
+            let mut pcap_writer = PcapWriter::with_header(capture_context.fifo, pcap_header).unwrap();
             let mut data_packet = 0;
             let data_total = DATA.len() / 20 + 1;
 
             for i in 0..usize::MAX {
-                if let (Some(in_pipe), Some(control_sender)) =
-                    (extcap_control_in.as_mut(), extcap_control_out.as_mut())
-                {
-                    if let Some(control_packet) = in_pipe.try_read_packet() {
+                if let (Some(control_reader), Some(control_sender)) = &mut controls {
+                    if let Some(control_packet) = control_reader.try_read_packet() {
                         handle_control_packet(&control_packet, control_sender, &mut app_state)
                             .unwrap();
                     }
