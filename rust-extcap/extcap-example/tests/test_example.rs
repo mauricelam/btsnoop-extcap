@@ -1,7 +1,7 @@
-use assert_cmd::prelude::*;
+use assert_cmd::Command;
 use indoc::indoc;
 use predicates::prelude::*;
-use std::process::Command;
+use std::time::Duration;
 
 #[test]
 fn interfaces() {
@@ -21,7 +21,7 @@ fn interfaces() {
             value {control=1}{value=4}{display=4s}
             value {control=1}{value=5}{display=5s}{default=true}
             value {control=1}{value=60}{display=60s}
-            control {number=2}{type=boolean}{display=Verify}{tooltip=Verify package control}
+            control {number=2}{type=boolean}{display=Verify}{default=false}{tooltip=Verify package control}
             control {number=3}{type=button}{display=Turn on}{tooltip=Turn on or off}
             control {number=4}{type=button}{role=help}{display=Help}{tooltip=Show help}
             control {number=5}{type=button}{role=restore}{display=Restore}{tooltip=Restore default values}
@@ -49,7 +49,7 @@ fn config() {
             arg {number=7}{call=--d2test}{display=Double 2 Test}{tooltip=Double Test Value}{default=123456}{type=double}{group=Numeric Values}
             arg {number=8}{call=--password}{display=Password}{tooltip=Package message password}{type=password}
             arg {number=9}{call=--ts}{display=Start Time}{tooltip=Capture start time}{group=Time / Log}{type=timestamp}
-            arg {number=10}{call=--logfile}{display=Log File Test}{tooltip=The Log File Test}{group=Time / Log}{type=fileselect}{mustexist=true}
+            arg {number=10}{call=--logfile}{display=Log File Test}{tooltip=The Log File Test}{group=Time / Log}{type=fileselect}{mustexist=true}{fileext=Text files (*.txt);;XML files (*.xml)}
             arg {number=11}{call=--radio}{display=Radio Test}{tooltip=Radio Test Value}{group=Selection}{type=radio}
             value {arg=11}{value=r1}{display=Radio1}{default=false}
             value {arg=11}{value=r2}{display=Radio2}{default=true}
@@ -89,4 +89,17 @@ fn print_dlt() {
     cmd.assert().success().stdout(predicate::str::diff(
         "dlt {number=147}{name=USER0}{display=Demo Implementation for Extcap}\n",
     ));
+}
+
+use nix::sys::stat;
+#[test]
+fn capture() {
+    let tempdir = tempfile::tempdir().unwrap();
+    let capture_fifo = tempdir.path().join("capture-fifo");
+    nix::unistd::mkfifo(&capture_fifo, stat::Mode::S_IRWXU).unwrap();
+    let mut cmd = Command::cargo_bin("extcap-example").unwrap();
+    cmd.args(["--extcap-interface", "rs-example1", "--capture", "--fifo", capture_fifo.to_string_lossy().as_ref()]);
+    cmd.args(["--delay", "5", "--message", "hi", "--verify", "--remote", "if2"]);
+    cmd.timeout(Duration::from_secs(5));
+    cmd.assert().interrupted();
 }

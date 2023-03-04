@@ -88,7 +88,7 @@ pub struct Interface {
 /// # };
 /// assert_eq!(
 ///     ExtcapFormatter(&Interface{ value: "MyInterface".into(), display: "My interface".into(), dlt }).to_string(),
-///     "interface {value=MyInterface}{display=My interface}",
+///     "interface {value=MyInterface}{display=My interface}\n",
 /// );
 /// ```
 impl PrintSentence for Interface {
@@ -126,7 +126,7 @@ pub struct Dlt {
 /// ## Example
 /// ```
 /// use rust_extcap::config::ExtcapFormatter;
-/// use rust_extcap::dlt::{DataLink, Dlt};
+/// use rust_extcap::interface::{DataLink, Dlt};
 ///
 /// let dlt = Dlt {
 ///     data_link_type: DataLink::ETHERNET,

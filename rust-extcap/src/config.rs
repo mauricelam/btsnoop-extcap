@@ -60,7 +60,7 @@ impl std::fmt::Debug for Reload {
 ///     .call("remote")
 ///     .display("Remote Channel")
 ///     .tooltip("Remote Channel Selector")
-///     .options([
+///     .default_options([
 ///         ConfigOptionValue::builder().value("if1").display("Remote1").default(true).build(),
 ///         ConfigOptionValue::builder().value("if2").display("Remote2").build(),
 ///     ])
@@ -752,7 +752,9 @@ impl PrintSentence for StringConfig {
         if let Some(group) = &self.group {
             write!(f, "{{group={group}}}")?;
         }
-        write!(f, "{{save={}}}", self.save)?;
+        if !self.save {
+            write!(f, "{{save=false}}")?;
+        }
         write!(f, "{{type=string}}")?;
         writeln!(f)?;
         Ok(())
@@ -1015,7 +1017,7 @@ generate_config_ext!(FileSelectConfig);
 ///     .build();
 /// assert_eq!(
 ///     format!("{}", ExtcapFormatter(&config)),
-///     "arg {number=2}{call=--verify}{display=Verify}{tooltip=Verify package content}{type=boolean}\n"
+///     "arg {number=2}{call=--verify}{display=Verify}{tooltip=Verify package content}{type=boolflag}\n"
 /// );
 /// ```
 #[derive(Debug, TypedBuilder)]

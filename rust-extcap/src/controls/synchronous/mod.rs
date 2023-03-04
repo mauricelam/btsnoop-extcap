@@ -20,7 +20,7 @@ use std::{
     fs::File,
     io::{Read, Write},
     path::{Path, PathBuf},
-    sync::{mpsc, Mutex},
+    sync::{mpsc::{self, SendError}, Mutex},
     thread::JoinHandle,
 };
 use thiserror::Error;
@@ -40,6 +40,26 @@ pub enum ReadControlError {
     /// Error parsing the incoming data into the [`ControlPacket`] format.
     #[error("Error parsing control packet: {0}")]
     ParseError(String),
+}
+
+/// Error associated with [`ChannelExtcapControlReader`].
+#[derive(Debug, Error)]
+pub enum ControlChannelError {
+    /// Error returned when the control packet cannot be read. See
+    /// the docs on [`ReadControlError`].
+    #[error(transparent)]
+    ReadControl(#[from] ReadControlError),
+
+    /// Error returned when the control packet cannot be sent on the channel.
+    /// This is caused by an underlying [`mpsc::SendError`].
+    #[error("Cannot send control packet to channel")]
+    CannotSend,
+}
+
+impl <T> From<SendError<T>> for ControlChannelError {
+    fn from(_: SendError<T>) -> Self {
+        ControlChannelError::CannotSend
+    }
 }
 
 /// A reader for an Extcap Control using a [`Channel`][mpsc::channel]. This is
@@ -71,7 +91,7 @@ pub struct ChannelExtcapControlReader {
     /// The join handle for the spawned thread. In most cases there is no need
     /// to use this, as the control fifo is expected to run for the whole
     /// duration of the capture.
-    pub join_handle: JoinHandle<anyhow::Result<()>>,
+    pub join_handle: JoinHandle<Result<(), ControlChannelError>>,
     /// The channel to receive control packets from.
     pub read_channel: mpsc::Receiver<ControlPacket<'static>>,
 }

@@ -7,16 +7,13 @@ use pcap_file::{
 };
 use rust_extcap::{
     config::*,
-    controls::synchronous::{
-        ChannelExtcapControlReader, ExtcapControlSender, ExtcapControlSenderTrait,
-    },
+    controls::synchronous::{ExtcapControlSender, ExtcapControlSenderTrait},
     controls::*,
     interface::{Dlt, Interface, Metadata},
-    ExtcapApplication, ExtcapError,
+    ExtcapApplication, ExtcapError, RunCapture,
 };
 use std::{
     fmt::Display,
-    fs::File,
     io::{stdout, Write},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -339,7 +336,7 @@ fn control_write_defaults(
 }
 
 #[derive(Debug, Parser)]
-struct AppArgs {
+pub struct AppArgs {
     #[command(flatten)]
     extcap: rust_extcap::ExtcapArgs,
 
@@ -448,36 +445,117 @@ fn main() -> anyhow::Result<()> {
     }
     debug!("Running app");
     match args.extcap.run(&*APPLICATION) {
-        Ok(_) => return Ok(()),
-        Err(ExtcapError::NotExtcapInput) => { /* continue */ }
-        err => err?,
-    }
-    debug!("App run finished");
+        Ok(None) => return Ok(()),
+        Ok(Some(RunCapture {
+            interface: _,
+            fifo,
+            mut extcap_control_in,
+            mut extcap_control_out,
+        })) => {
+            anyhow::ensure!(args.delay <= 5, "Value for delay {} too high", args.delay);
+            let mut app_state = CaptureState {
+                initialized: false,
+                message: args.message.clone(),
+                delay: args.delay,
+                verify: args.verify,
+                button: false,
+                button_disabled: false,
+            };
+            let mut counter = 1;
+            const DATA: &[u8] = b"\
+            Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor \
+            incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nost \
+            rud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis \
+            aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugi \
+            at nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culp \
+            a qui officia deserunt mollit anim id est laborum.";
+            if let (Some(in_pipe), Some(out_pipe)) =
+                (extcap_control_in.as_mut(), extcap_control_out.as_mut())
+            {
+                let packet = in_pipe.read_packet()?;
+                assert_eq!(packet.command, ControlCommand::Initialized);
 
-    if let Some(interface) = args.extcap.extcap_interface {
-        if args.extcap.capture {
-            let fifo = args.extcap.fifo.unwrap_or_else(|| Exit::ErrorFifo.exit());
-            if args.delay > 5 {
-                eprintln!("Value for delay {} too high", args.delay);
-                // Close the fifo to signal to prevent wireshark from blocking
-                drop(File::open(fifo));
-                Exit::ErrorDelay.exit();
+                APPLICATION
+                    .control_logger
+                    .clear_and_add_log(format!("Log started at {:?}", SystemTime::now()).into())
+                    .send(out_pipe)?;
+                control_write_defaults(
+                    out_pipe,
+                    &app_state.message,
+                    app_state.delay,
+                    app_state.verify,
+                )?;
             }
-            extcap_capture(
-                &interface,
-                &fifo,
-                args.extcap.extcap_control_in,
-                args.extcap.extcap_control_out,
-                args.delay,
-                args.verify,
-                args.message,
-                args.remote,
-                args.fake_ip,
-            )?;
-        } else {
-            Exit::ErrorInterface.exit();
+
+            let pcap_header = PcapHeader {
+                datalink: DataLink::ETHERNET,
+                endianness: pcap_file::Endianness::Big,
+                ..Default::default()
+            };
+            let mut pcap_writer = PcapWriter::with_header(fifo, pcap_header).unwrap();
+            let mut data_packet = 0;
+            let data_total = DATA.len() / 20 + 1;
+
+            for i in 0..usize::MAX {
+                if let (Some(in_pipe), Some(control_sender)) =
+                    (extcap_control_in.as_mut(), extcap_control_out.as_mut())
+                {
+                    if let Some(control_packet) = in_pipe.try_read_packet() {
+                        handle_control_packet(&control_packet, control_sender, &mut app_state)
+                            .unwrap();
+                    }
+
+                    APPLICATION
+                        .control_logger
+                        .add_log(format!("Received packet #{counter}").into())
+                        .send(control_sender)?;
+                    counter += 1;
+
+                    debug!(
+                        "Extcap out control. btn disabled = {}",
+                        app_state.button_disabled
+                    );
+
+                    if app_state.button_disabled {
+                        APPLICATION
+                            .control_button
+                            .set_enabled(true)
+                            .send(control_sender)?;
+                        control_sender.info_message("Turn action finished.")?;
+                        app_state.button_disabled = false;
+                    }
+                }
+
+                if data_packet * 20 > DATA.len() {
+                    data_packet = 0;
+                }
+                let data_sub = &DATA[data_packet * 20..(data_packet + 1) * 20];
+                data_packet += 1;
+                let out = create_out_packet(
+                    args.remote,
+                    data_packet,
+                    data_total,
+                    data_sub,
+                    app_state.message.as_bytes(),
+                    app_state.verify,
+                );
+                let packet = pcap_fake_packet(&out, &args.fake_ip, i);
+
+                pcap_writer.write_packet(&PcapPacket::new(
+                    SystemTime::now().duration_since(UNIX_EPOCH).unwrap(),
+                    (packet.len() + 14 + 20) as u32,
+                    &packet,
+                ))?;
+                stdout().flush()?;
+                std::thread::sleep(Duration::from_secs(app_state.delay.into()));
+            }
+        }
+        Err(ExtcapError::NotExtcapInput) => { /* continue */ }
+        err => {
+            err?;
         }
     }
+    debug!("App run finished");
 
     Ok(())
 }
@@ -555,120 +633,6 @@ fn handle_control_packet(
             .send(control_sender)?;
     }
     debug!("Read control packet Loop end");
-    Ok(())
-}
-
-#[allow(clippy::too_many_arguments)]
-fn extcap_capture(
-    _interface: &str,
-    fifo: &std::path::Path,
-    extcap_control_in: Option<std::path::PathBuf>,
-    extcap_control_out: Option<std::path::PathBuf>,
-    delay: u8,
-    verify: bool,
-    message: String,
-    remote: Remote,
-    fake_ip: String,
-) -> anyhow::Result<()> {
-    let mut app_state = CaptureState {
-        initialized: false,
-        message,
-        delay,
-        verify,
-        button: false,
-        button_disabled: false,
-    };
-    let mut counter = 1;
-    const DATA: &[u8] = b"\
-Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor \
-incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nost \
-rud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis \
-aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugi \
-at nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culp \
-a qui officia deserunt mollit anim id est laborum.";
-
-    let mut extcap_control_in = extcap_control_in.map(ChannelExtcapControlReader::spawn);
-    let mut extcap_control_out = extcap_control_out.map(|p| ExtcapControlSender::new(&p));
-    if let (Some(in_pipe), Some(out_pipe)) =
-        (extcap_control_in.as_mut(), extcap_control_out.as_mut())
-    {
-        let packet = in_pipe.read_packet()?;
-        assert_eq!(packet.command, ControlCommand::Initialized);
-
-        APPLICATION
-            .control_logger
-            .clear_and_add_log(format!("Log started at {:?}", SystemTime::now()).into())
-            .send(out_pipe)?;
-        control_write_defaults(
-            out_pipe,
-            &app_state.message,
-            app_state.delay,
-            app_state.verify,
-        )?;
-    }
-
-    let fh = File::create(fifo).unwrap();
-    let pcap_header = PcapHeader {
-        datalink: DataLink::ETHERNET,
-        endianness: pcap_file::Endianness::Big,
-        ..Default::default()
-    };
-    let mut pcap_writer = PcapWriter::with_header(fh, pcap_header).unwrap();
-    let mut data_packet = 0;
-    let data_total = DATA.len() / 20 + 1;
-
-    for i in 0..usize::MAX {
-        if let (Some(in_pipe), Some(control_sender)) =
-            (extcap_control_in.as_mut(), extcap_control_out.as_mut())
-        {
-            if let Some(control_packet) = in_pipe.try_read_packet() {
-                handle_control_packet(&control_packet, control_sender, &mut app_state).unwrap();
-            }
-
-            APPLICATION
-                .control_logger
-                .add_log(format!("Received packet #{counter}").into())
-                .send(control_sender)?;
-            counter += 1;
-
-            debug!(
-                "Extcap out control. btn disabled = {}",
-                app_state.button_disabled
-            );
-
-            if app_state.button_disabled {
-                APPLICATION
-                    .control_button
-                    .set_enabled(true)
-                    .send(control_sender)?;
-                control_sender.info_message("Turn action finished.")?;
-                app_state.button_disabled = false;
-            }
-        }
-
-        if data_packet * 20 > DATA.len() {
-            data_packet = 0;
-        }
-        let data_sub = &DATA[data_packet * 20..(data_packet + 1) * 20];
-        data_packet += 1;
-        let out = create_out_packet(
-            remote,
-            data_packet,
-            data_total,
-            data_sub,
-            app_state.message.as_bytes(),
-            app_state.verify,
-        );
-        let packet = pcap_fake_packet(&out, &fake_ip, i);
-
-        pcap_writer.write_packet(&PcapPacket::new(
-            SystemTime::now().duration_since(UNIX_EPOCH).unwrap(),
-            (packet.len() + 14 + 20) as u32,
-            &packet,
-        ))?;
-        stdout().flush()?;
-        std::thread::sleep(Duration::from_secs(app_state.delay.into()));
-    }
     Ok(())
 }
 
