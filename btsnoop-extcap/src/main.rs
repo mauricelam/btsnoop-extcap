@@ -11,7 +11,7 @@ use pcap_file::{
     pcap::{PcapHeader, PcapPacket, PcapWriter},
     DataLink,
 };
-use rust_extcap::{
+use r_extcap::{
     controls::asynchronous::{
         util::AsyncReadExt as _, ExtcapControlReader, ExtcapControlSender, ExtcapControlSenderTrait,
     },
