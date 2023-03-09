@@ -1,10 +1,10 @@
 #![deny(unused_must_use)]
 
 use adb::{AdbRootError, BtsnoopLogMode, BtsnoopLogSettings};
-use anyhow::anyhow;
 use btsnoop::{FileHeader, PacketHeader};
 use btsnoop_ext::Direction;
 use clap::Parser;
+use lazy_static::lazy_static;
 use log::{debug, info, warn};
 use nom_derive::Parse as _;
 use pcap_file::{
@@ -12,16 +12,17 @@ use pcap_file::{
     DataLink,
 };
 use r_extcap::{
+    cargo_metadata,
     controls::asynchronous::{
-        util::AsyncReadExt as _, ExtcapControlReader, ExtcapControlSender, ExtcapControlSenderTrait,
+        util::AsyncReadExt as _, ExtcapControlSender, ExtcapControlSenderTrait,
     },
-    controls::{ControlCommand, ControlPacket},
-    ExtcapArgs,
+    controls::{ButtonControl, ControlCommand, ControlPacket},
+    interface::{Dlt, Interface},
+    ExtcapArgs, ExtcapStep, PrintSentence,
 };
 use std::{
     borrow::Cow,
     io::{stdout, Write},
-    path::Path,
     process::Stdio,
     time::{Duration, Instant},
 };
@@ -37,7 +38,7 @@ mod btsnoop_ext;
 /// An extcap plugin for Wireshark or tshark that captures the btsnoop HCI logs
 /// from an Android device connected over adb.
 #[derive(Debug, Parser)]
-#[command(author, version, about, about = installation_instructions())]
+#[command(author, version, about)]
 pub struct BtsnoopArgs {
     #[command(flatten)]
     extcap: ExtcapArgs,
@@ -151,16 +152,15 @@ async fn handle_control_packet(
 async fn print_packets(
     serial: &str,
     extcap_control: &Mutex<Option<ExtcapControlSender>>,
-    output_fifo: &Path,
+    output_fifo: &mut std::fs::File,
     btsnoop_log_file_path: &Option<String>,
     display_delay: Duration,
 ) -> anyhow::Result<()> {
-    let writer = std::fs::File::create(output_fifo)?;
     let btsnoop_log_file_path = btsnoop_log_file_path
         .as_deref()
         .unwrap_or("/data/misc/bluetooth/logs/btsnoop_hci.log");
     let write_result = if let Some(test_file) = btsnoop_log_file_path.strip_prefix("local:") {
-        write_pcap_packets(File::open(test_file).await?, writer, display_delay).await
+        write_pcap_packets(File::open(test_file).await?, output_fifo, display_delay).await
     } else {
         match adb::root(serial).await {
             Err(e @ AdbRootError::RootDeclined) => {
@@ -207,7 +207,7 @@ async fn print_packets(
         .spawn()?;
         info!("Running adb tail -F -c +0 {btsnoop_log_file_path}");
         let stdout = cmd.stdout.as_mut().unwrap();
-        write_pcap_packets(stdout, writer, display_delay).await
+        write_pcap_packets(stdout, output_fifo, display_delay).await
     };
     extcap_control
         .status_message("BT capture connection closed")
@@ -219,99 +219,85 @@ async fn print_packets(
     write_result.map(|_| ())
 }
 
+lazy_static! {
+    static ref BT_LOGGING_BUTTON: ButtonControl = ButtonControl::builder()
+        .control_number(0)
+        .display("Turn on BT logging")
+        .build();
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     env_logger::init();
     let args = BtsnoopArgs::parse();
     debug!("Running with args: {args:#?}");
-    if args.extcap.extcap_interfaces {
-        println!("extcap {{version={}}}", env!("CARGO_PKG_VERSION"));
-        for d in adb::adb_devices(args.adb_path).await?.iter() {
-            println!(
-                "interface {{value=btsnoop-{}}}{{display=BTsnoop {} {}}}",
-                d.serial, d.display_name, d.serial
+    let dlt = Dlt::builder()
+        .data_link_type(DataLink::BLUETOOTH_HCI_H4_WITH_PHDR)
+        .name("BluetoothH4".into())
+        .display("Bluetooth HCI UART transport layer plius pseudo-header".into())
+        .build();
+    match args.extcap.run()? {
+        ExtcapStep::Interfaces(interfaces_step) => {
+            let interfaces: Vec<Interface> = adb::adb_devices(args.adb_path)
+                .await?
+                .iter()
+                .map(|d| {
+                    Interface::builder()
+                        .value(format!("btsnoop-{}", d.serial).into())
+                        .display(format!("BTsnoop {} {}", d.display_name, d.serial).into())
+                        .dlt(dlt.clone())
+                        .build()
+                })
+                .collect();
+            interfaces_step.list_interfaces(
+                &cargo_metadata!(),
+                &interfaces.iter().collect::<Vec<&Interface>>(),
+                &[&*BT_LOGGING_BUTTON],
             );
-            println!("control {{number=1}}{{type=button}}{{display=Turn off BT logging}}");
-            println!("control {{number=0}}{{type=button}}{{display=Turn on BT logging}}");
         }
-        Ok(())
-    } else if args.extcap.capture {
-        let interface = args.extcap.extcap_interface.unwrap();
-        let fifo = args.extcap.fifo.unwrap();
-        assert!(
-            interface.starts_with("btsnoop-"),
-            "Interface must start with \"btsnoop-\""
-        );
-        let serial = interface.split('-').nth(1).unwrap();
-        let extcap_reader = if let Some(path) = args.extcap.extcap_control_in {
-            Some(ExtcapControlReader::new(&path).await)
-        } else {
-            None
-        };
-        let extcap_sender: Mutex<Option<ExtcapControlSender>> =
-            if let Some(path) = args.extcap.extcap_control_out {
-                Mutex::new(Some(ExtcapControlSender::new(&path).await))
-            } else {
-                Mutex::new(None)
-            };
-        let result = tokio::try_join!(
-            async {
-                if let Some(mut reader) = extcap_reader {
-                    while let Ok(packet) = reader.read_control_packet().await {
-                        handle_control_packet(
-                            serial.to_string(),
-                            packet,
-                            &mut *extcap_sender.lock().await,
-                        )
-                        .await?;
+        ExtcapStep::Dlts(_dlts_step) => {
+            dlt.print_sentence();
+        }
+        ExtcapStep::Config(_) => {}
+        ExtcapStep::ReloadConfig(_) => {}
+        ExtcapStep::Capture(mut capture_step) => {
+            let interface = capture_step.interface;
+            assert!(
+                interface.starts_with("btsnoop-"),
+                "Interface must start with \"btsnoop-\""
+            );
+            let serial = interface.split('-').nth(1).unwrap();
+            let extcap_reader = capture_step.new_control_reader_async().await;
+            let extcap_sender: Mutex<Option<ExtcapControlSender>> =
+                Mutex::new(capture_step.new_control_sender_async().await);
+            let result = tokio::try_join!(
+                async {
+                    if let Some(mut reader) = extcap_reader {
+                        while let Ok(packet) = reader.read_control_packet().await {
+                            handle_control_packet(
+                                serial.to_string(),
+                                packet,
+                                &mut *extcap_sender.lock().await,
+                            )
+                            .await?;
+                        }
                     }
-                }
-                debug!("Control packet handling ending");
-                Ok::<(), anyhow::Error>(())
-            },
-            print_packets(
-                serial,
-                &extcap_sender,
-                &fifo,
-                &args.btsnoop_log_file_path,
-                args.display_delay
-            ),
-        );
-        if let Err(e) = result {
-            warn!("Error capturing packets: {e}");
+                    debug!("Control packet handling ending");
+                    Ok::<(), anyhow::Error>(())
+                },
+                print_packets(
+                    serial,
+                    &extcap_sender,
+                    &mut capture_step.fifo,
+                    &args.btsnoop_log_file_path,
+                    args.display_delay
+                ),
+            );
+            if let Err(e) = result {
+                warn!("Error capturing packets: {e}");
+            }
+            debug!("Capture ending");
         }
-        debug!("Capture ending");
-        Ok(())
-    } else if args.extcap.extcap_config {
-        Ok(())
-    } else if args.extcap.extcap_dlts {
-        // Values from https://github.com/wireshark/wireshark/blob/master/wiretap/wtap.h
-        println!(
-            "dlt {{number=99}}{{name=BluetoothH4}}{{display=Bluetooth HCI UART transport layer plius pseudo-header}}"
-        );
-        Ok(())
-    } else {
-        Err(anyhow!(
-            "Error: extcap arguments not specified.\n{}",
-            installation_instructions()
-        ))
     }
-}
-
-/// Returns the installation instructions for this extcap program.
-fn installation_instructions() -> String {
-    let exe_path = std::env::current_exe()
-            .map(|exe| {
-                let path = exe.to_string_lossy();
-                format!("\n  mkdir -p ~/.config/wireshark/extcap/ && ln -s \"{path}\" ~/.config/wireshark/extcap/btsnoop-extcap")
-            })
-            .unwrap_or_default();
-    format!(
-        concat!(
-            "This is an extcap plugin meant to be used with Wireshark or tshark.",
-            "To install this plugin for use with Wireshark, symlink or copy this executable ",
-            "to your Wireshark extcap directory{}",
-        ),
-        exe_path
-    )
+    Ok(())
 }

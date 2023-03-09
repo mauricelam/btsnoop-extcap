@@ -34,3 +34,16 @@ Detected devices are shown in Wireshark's __Capture__ interface list.
 2. In the __Developer options__ menu, activate the __Enable Bluetooth HCI snoop log__ toggle.
 3. Restart Bluetooth for logging to take effect.
 4. Run `adb root`
+
+## Relationship with `androiddump`
+
+Wireshark has `androiddump` as one of the included extcap implementations. It is
+based on an old configuration in Android that forwarded the btsnoop logs to port
+8872, which was
+[disabled](https://android.googlesource.com/platform/packages/modules/Bluetooth/+/4dcaa4646c0a44300a727e332859f518a08f6085)
+in 2015. While it can be turned back on by changing the source code, recompiling
+Android is incovenient in some cases.
+
+Meanwhile, Android continues to provide the option to write the HCI logs to a
+local log file (in the `/system` partition, so root access is required to read
+it), and that is what this extcap uses as the packet source.
