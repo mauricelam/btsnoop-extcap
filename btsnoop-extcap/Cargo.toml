@@ -14,7 +14,7 @@ categories = ["parser-implementations"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-r-extcap = { version = "0.1.0", path = "../../r-extcap" }
+r-extcap = { version = "0.2.0" }
 btsnoop = { version = "0.2.0", path = "../btsnoop" }
 pcap-file = "2.0.0"
 anyhow = "1.0.68"
@@ -31,4 +31,5 @@ lazy_static = "1.4.0"
 
 [dev-dependencies]
 assert_cmd = "2.0.8"
+indoc = "2.0.1"
 predicates = "2.1.5"

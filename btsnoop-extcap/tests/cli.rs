@@ -1,4 +1,5 @@
 use assert_cmd::prelude::*;
+use indoc::indoc;
 use predicates::prelude::*;
 use std::process::Command;
 
@@ -11,14 +12,12 @@ fn list_interfaces() {
         .arg("--adb-path=mock");
     cmd.assert()
         .success()
-        .stdout(predicate::str::contains(concat!(
-        "interface {value=btsnoop-TEST_SERIAL_1}{display=BTsnoop Test device 1 TEST_SERIAL_1}\n",
-        "control {number=1}{type=button}{display=Turn off BT logging}\n",
-        "control {number=0}{type=button}{display=Turn on BT logging}\n",
-        "interface {value=btsnoop-TEST_SERIAL_2}{display=BTsnoop Test device 2 TEST_SERIAL_2}\n",
-        "control {number=1}{type=button}{display=Turn off BT logging}\n",
-        "control {number=0}{type=button}{display=Turn on BT logging}\n",
-    )));
+        .stdout(predicate::str::contains(indoc! {"
+        interface {value=btsnoop-TEST_SERIAL_1}{display=BTsnoop Test device 1 TEST_SERIAL_1}
+        interface {value=btsnoop-TEST_SERIAL_2}{display=BTsnoop Test device 2 TEST_SERIAL_2}
+        control {number=0}{type=button}{display=Turn on BT logging}
+        "}
+    ));
 }
 
 fn contains(needle: &[u8]) -> impl Fn(&[u8]) -> bool + '_ {
