@@ -1,5 +1,8 @@
 # Extcap binary for capturing bluetooth packets from Android devices
 
+[![Build status](https://github.com/mauricelam/btsnoop-rs/workflows/ci/badge.svg)](https://github.com/mauricelam/btsnoop-rs/actions)
+[![Crates.io](https://img.shields.io/crates/v/btsnoop-extcap.svg)](https://crates.io/crates/btsnoop-extcap)
+
 ## Installation
 
 ```sh

@@ -1,6 +1,9 @@
 # Btsnoop parser library for Rust
 
-This library provides parsing capaibilities for [btsnoop logs](https://fte.com/webhelpii/bpa600/Content/Technical_Information/BT_Snoop_File_Format.htm). 
+[![Build status](https://github.com/mauricelam/btsnoop-rs/workflows/ci/badge.svg)](https://github.com/mauricelam/btsnoop-rs/actions)
+[![Crates.io](https://img.shields.io/crates/v/btsnoop.svg)](https://crates.io/crates/btsnoop)
+
+This library provides parsing capaibilities for [btsnoop logs](https://fte.com/webhelpii/bpa600/Content/Technical_Information/BT_Snoop_File_Format.htm).
 
 ```toml
 [dependencies]
