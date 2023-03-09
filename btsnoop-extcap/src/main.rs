@@ -17,7 +17,7 @@ use r_extcap::{
         util::AsyncReadExt as _, ExtcapControlSender, ExtcapControlSenderTrait,
     },
     controls::{ButtonControl, ControlCommand, ControlPacket, EnableableControl},
-    interface::{Dlt, Interface},
+    interface::{Dlt, Interface, Metadata},
     ExtcapArgs, ExtcapStep, PrintSentence,
 };
 use std::{
@@ -225,7 +225,10 @@ async fn main() -> anyhow::Result<()> {
                 })
                 .collect();
             interfaces_step.list_interfaces(
-                &cargo_metadata!(),
+                &Metadata {
+                    display_description: "Android btsnoop".into(),
+                    ..cargo_metadata!()
+                },
                 &interfaces.iter().collect::<Vec<&Interface>>(),
                 &[&*BT_LOGGING_ON_BUTTON, &*BT_LOGGING_OFF_BUTTON],
             );
