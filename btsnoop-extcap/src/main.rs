@@ -16,7 +16,7 @@ use r_extcap::{
     controls::asynchronous::{
         util::AsyncReadExt as _, ExtcapControlSender, ExtcapControlSenderTrait,
     },
-    controls::{ButtonControl, ControlCommand, ControlPacket},
+    controls::{ButtonControl, ControlCommand, ControlPacket, EnableableControl},
     interface::{Dlt, Interface},
     ExtcapArgs, ExtcapStep, PrintSentence,
 };
@@ -101,49 +101,32 @@ async fn write_pcap_packets<W: Write, R: AsyncRead + Unpin + Send>(
     Ok(())
 }
 
-const BUTTON_TURN_ON_BTSNOOP: u8 = 0;
-const BUTTON_TURN_OFF_BTSNOOP: u8 = 1;
-
 async fn handle_control_packet(
     serial: String,
     control_packet: ControlPacket<'_>,
     extcap_control: &mut Option<ExtcapControlSender>,
 ) -> anyhow::Result<()> {
     if control_packet.command == ControlCommand::Set {
-        match control_packet.control_number {
-            BUTTON_TURN_ON_BTSNOOP => {
-                // Turn on
-                BtsnoopLogSettings::set_mode(&serial, BtsnoopLogMode::Full).await?;
-                extcap_control
-                    .send(ControlPacket::new(
-                        BUTTON_TURN_ON_BTSNOOP,
-                        ControlCommand::Disable,
-                    ))
-                    .await?;
-                extcap_control
-                    .send(ControlPacket::new(
-                        BUTTON_TURN_OFF_BTSNOOP,
-                        ControlCommand::Enable,
-                    ))
-                    .await?;
-            }
-            BUTTON_TURN_OFF_BTSNOOP => {
-                // Turn off
-                BtsnoopLogSettings::set_mode(&serial, BtsnoopLogMode::Disabled).await?;
-                extcap_control
-                    .send(ControlPacket::new(
-                        BUTTON_TURN_OFF_BTSNOOP,
-                        ControlCommand::Disable,
-                    ))
-                    .await?;
-                extcap_control
-                    .send(ControlPacket::new(
-                        BUTTON_TURN_ON_BTSNOOP,
-                        ControlCommand::Enable,
-                    ))
-                    .await?;
-            }
-            control_number => panic!("Unknown control number {control_number}"),
+        if control_packet.control_number == BT_LOGGING_ON_BUTTON.control_number {
+            // Turn on
+            BtsnoopLogSettings::set_mode(&serial, BtsnoopLogMode::Full).await?;
+            extcap_control
+                .send(BT_LOGGING_ON_BUTTON.set_enabled(false))
+                .await?;
+            extcap_control
+                .send(BT_LOGGING_OFF_BUTTON.set_enabled(true))
+                .await?;
+        } else if control_packet.control_number == BT_LOGGING_OFF_BUTTON.control_number {
+            // Turn off
+            BtsnoopLogSettings::set_mode(&serial, BtsnoopLogMode::Disabled).await?;
+            extcap_control
+                .send(BT_LOGGING_OFF_BUTTON.set_enabled(false))
+                .await?;
+            extcap_control
+                .send(BT_LOGGING_ON_BUTTON.set_enabled(true))
+                .await?;
+        } else {
+            panic!("Unknown control number {}", control_packet.control_number);
         }
     }
     Ok(())
@@ -173,29 +156,17 @@ async fn print_packets(
         }
         if BtsnoopLogSettings::mode(serial).await? == BtsnoopLogMode::Full {
             extcap_control
-                .send(ControlPacket::new(
-                    BUTTON_TURN_ON_BTSNOOP,
-                    ControlCommand::Disable,
-                ))
+                .send(BT_LOGGING_ON_BUTTON.set_enabled(false))
                 .await?;
             extcap_control
-                .send(ControlPacket::new(
-                    BUTTON_TURN_OFF_BTSNOOP,
-                    ControlCommand::Enable,
-                ))
+                .send(BT_LOGGING_OFF_BUTTON.set_enabled(true))
                 .await?;
         } else {
             extcap_control
-                .send(ControlPacket::new(
-                    BUTTON_TURN_OFF_BTSNOOP,
-                    ControlCommand::Disable,
-                ))
+                .send(BT_LOGGING_OFF_BUTTON.set_enabled(false))
                 .await?;
             extcap_control
-                .send(ControlPacket::new(
-                    BUTTON_TURN_ON_BTSNOOP,
-                    ControlCommand::Enable,
-                ))
+                .send(BT_LOGGING_ON_BUTTON.set_enabled(true))
                 .await?;
             extcap_control.status_message("BTsnoop logging is turned off. Use View > Interface Toolbars to show the buttons to turn it on").await?;
         }
@@ -220,9 +191,13 @@ async fn print_packets(
 }
 
 lazy_static! {
-    static ref BT_LOGGING_BUTTON: ButtonControl = ButtonControl::builder()
+    static ref BT_LOGGING_ON_BUTTON: ButtonControl = ButtonControl::builder()
         .control_number(0)
         .display("Turn on BT logging")
+        .build();
+    static ref BT_LOGGING_OFF_BUTTON: ButtonControl = ButtonControl::builder()
+        .control_number(1)
+        .display("Turn off BT logging")
         .build();
 }
 
@@ -252,7 +227,7 @@ async fn main() -> anyhow::Result<()> {
             interfaces_step.list_interfaces(
                 &cargo_metadata!(),
                 &interfaces.iter().collect::<Vec<&Interface>>(),
-                &[&*BT_LOGGING_BUTTON],
+                &[&*BT_LOGGING_ON_BUTTON, &*BT_LOGGING_OFF_BUTTON],
             );
         }
         ExtcapStep::Dlts(_dlts_step) => {
