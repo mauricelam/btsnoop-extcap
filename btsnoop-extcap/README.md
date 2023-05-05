@@ -14,12 +14,14 @@ $ btsnoop-extcap
 Unknown extcap phase. This is an extcap plugin meant to be used with Wireshark or tshark.
 To install this plugin for use with Wireshark, symlink or copy this executable
 to your Wireshark extcap directory
-    mkdir -p ~/.config/wireshark/extcap/ && \
-    ln -s "~/.cargo/bin/btsnoop-extcap" ~/.config/wireshark/extcap/btsnoop-extcap
 
-# Run the symlink command in the error message
-$ mkdir -p ~/.config/wireshark/extcap/ && \
-  ln -s "~/.cargo/bin/btsnoop-extcap" ~/.config/wireshark/extcap/btsnoop-extcap
+# Run the symlink command in the error message (for Wireshark 4.1 or later)
+$ mkdir -p "$HOME/.local/lib/wireshark/extcap/" && \
+  ln -s "$HOME/.cargo/bin/btsnoop-extcap" "$HOME/.local/lib/wireshark/extcap/btsnoop-extcap"
+
+# or for Wireshark 4.0 or before
+$ mkdir -p "$HOME/.cargo/wireshark/extcap/" && \
+  ln -s "$HOME/.cargo/bin/btsnoop-extcap" "$HOME/.cargo/wireshark/extcap/btsnoop-extcap"
 ```
 
 _Root is required on the selected Android device._

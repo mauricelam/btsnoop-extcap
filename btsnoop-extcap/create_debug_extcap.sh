@@ -7,6 +7,7 @@ set -ex
 
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
+# NOTE: Change to ~/.local/lib/wireshark/extcap if using Wireshark 4.1 or above
 cat <<EOF > ~/.config/wireshark/extcap/btsnoop-extcap
 #! /usr/bin/env bash
 exec 2>/tmp/btsnoop-extcap.log
