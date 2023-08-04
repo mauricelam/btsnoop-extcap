@@ -15,7 +15,7 @@ categories = ["parser-implementations"]
 
 [dependencies]
 r-extcap = { version = "0.2.1" }
-btsnoop = { version = "0.2.0", path = "../btsnoop-rs/btsnoop" }
+btsnoop = { version = "0.2.0" }
 pcap-file = "2.0.0"
 anyhow = "1.0.68"
 clap = { version = "4.1.4", features = ["derive"] }
