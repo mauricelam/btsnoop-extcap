@@ -1,0 +1,72 @@
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+name: Upload release artifacts
+
+jobs:
+  upload-release-artifacts-ubuntu:
+    name: Upload release artifacts (Ubuntu)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v2
+
+      - name: Install stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+
+      - run: cargo build --release
+      - name: Upload release artifact
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: target/release/btsnoop-extcap
+
+  upload-release-artifacts-macos:
+    name: Upload release artifacts (macOS)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v2
+
+      - name: Install stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+
+      - run: cargo build --release
+      - name: Upload release artifact
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: target/release/btsnoop-extcap
+
+  upload-release-artifacts-windows:
+    name: Upload release artifacts (Windows)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v2
+
+      - name: Install stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+
+      - run: cargo build --release
+      - name: Upload release artifact
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: target/release/btsnoop-extcap
