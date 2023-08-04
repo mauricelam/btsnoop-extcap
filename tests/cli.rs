@@ -16,14 +16,14 @@ fn list_interfaces() {
         interface {value=btsnoop-TEST_SERIAL_1}{display=BTsnoop Test device 1 TEST_SERIAL_1}
         interface {value=btsnoop-TEST_SERIAL_2}{display=BTsnoop Test device 2 TEST_SERIAL_2}
         control {number=0}{type=button}{display=Turn on BT logging}
-        "}
-    ));
+        "}));
 }
 
 fn contains(needle: &[u8]) -> impl Fn(&[u8]) -> bool + '_ {
     move |bytes| bytes.windows(needle.len()).any(|w| w == needle)
 }
 
+#[cfg(not(target_os = "windows"))] // TODO: Fix the /dev/stdout usage for Windows
 #[test]
 fn capture() {
     let mut cmd = Command::cargo_bin("btsnoop-extcap").unwrap();
