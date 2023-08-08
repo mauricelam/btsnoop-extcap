@@ -26,7 +26,6 @@ jobs:
       - run: mkdir dist && mv "target/release/btsnoop-extcap" "dist/btsnoop-extcap-linux"
       - name: Upload release artifact
         uses: softprops/action-gh-release@v1
-        if: startsWith(github.ref, 'refs/tags/')
         with:
           files: dist/btsnoop-extcap-linux
 
@@ -48,7 +47,6 @@ jobs:
       - run: mkdir dist && mv "target/release/btsnoop-extcap" "dist/btsnoop-extcap-macos"
       - name: Upload release artifact
         uses: softprops/action-gh-release@v1
-        if: startsWith(github.ref, 'refs/tags/')
         with:
           files: dist/btsnoop-extcap-macos
 
@@ -70,6 +68,5 @@ jobs:
       - run: mkdir dist && mv "target/release/btsnoop-extcap.exe" "dist/btsnoop-extcap-windows.exe"
       - name: Upload release artifact
         uses: softprops/action-gh-release@v1
-        if: startsWith(github.ref, 'refs/tags/')
         with:
           files: dist/btsnoop-extcap-windows.exe
