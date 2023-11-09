@@ -96,15 +96,6 @@ fn parse_adb_device(
         .collect())
 }
 
-#[test]
-fn test_parse_adb_device_emulator() {
-    let devices = parse_adb_device([
-        r"List of devices attached",
-        r"emulator-5554          device product:sdk_gphone64_arm64 model:sdk_gphone64_arm64 device:emu64a transport_id:1",
-        r""].into_iter().map(|l| Ok(l.into()))).unwrap();
-    assert_eq!("emulator-5554", devices[0].serial);
-}
-
 fn mock_adb_devices() -> Vec<AdbDevice> {
     vec![
         AdbDevice {
@@ -198,5 +189,14 @@ mod test {
         )
         .unwrap();
         assert_eq!(0, devices.len());
+    }
+
+    #[test]
+    fn test_parse_adb_device_emulator() {
+        let devices = parse_adb_device([
+        r"List of devices attached",
+        r"emulator-5554          device product:sdk_gphone64_arm64 model:sdk_gphone64_arm64 device:emu64a transport_id:1",
+        r""].into_iter().map(|l| Ok(l.into()))).unwrap();
+        assert_eq!("emulator-5554", devices[0].serial);
     }
 }
