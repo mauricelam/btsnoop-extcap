@@ -1,6 +1,7 @@
 #![deny(unused_must_use)]
 
 use adb::{AdbRootError, BtsnoopLogMode, BtsnoopLogSettings};
+use anyhow::anyhow;
 use btsnoop::{FileHeader, PacketHeader};
 use btsnoop_ext::Direction;
 use clap::Parser;
@@ -240,11 +241,9 @@ async fn main() -> anyhow::Result<()> {
         ExtcapStep::ReloadConfig(_) => {}
         ExtcapStep::Capture(mut capture_step) => {
             let interface = capture_step.interface;
-            assert!(
-                interface.starts_with("btsnoop-"),
-                "Interface must start with \"btsnoop-\""
-            );
-            let serial = interface.split('-').nth(1).unwrap();
+            let serial = interface
+                .strip_prefix("btsnoop-")
+                .ok_or_else(|| anyhow!("Interface must start with \"btsnoop-\""))?;
             let extcap_reader = capture_step.new_control_reader_async().await;
             let extcap_sender: Mutex<Option<ExtcapControlSender>> =
                 Mutex::new(capture_step.new_control_sender_async().await);
