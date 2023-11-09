@@ -77,10 +77,14 @@ pub async fn adb_devices(adb_path: Option<String>) -> anyhow::Result<Vec<AdbDevi
         "Found adb devices {:?}",
         std::str::from_utf8(&output.stdout)
     );
-    let re = regex::Regex::new(r"([a-zA-Z0-9]+)\s+device.*model:([^ ]+).*")?;
-    Ok(output
-        .stdout
-        .lines()
+    parse_adb_device(output.stdout.lines())
+}
+
+fn parse_adb_device(
+    adb_device_output: impl Iterator<Item = std::io::Result<String>>,
+) -> anyhow::Result<Vec<AdbDevice>> {
+    let re = regex::Regex::new(r"([a-zA-Z0-9\\-]+)\s+device.*model:([^ ]+).*")?;
+    Ok(adb_device_output
         .filter_map(|line| {
             let line = line.ok()?;
             let cap = re.captures_iter(&line).next()?;
@@ -90,6 +94,15 @@ pub async fn adb_devices(adb_path: Option<String>) -> anyhow::Result<Vec<AdbDevi
             })
         })
         .collect())
+}
+
+#[test]
+fn test_parse_adb_device_emulator() {
+    let devices = parse_adb_device([
+        r"List of devices attached",
+        r"emulator-5554          device product:sdk_gphone64_arm64 model:sdk_gphone64_arm64 device:emu64a transport_id:1",
+        r""].into_iter().map(|l| Ok(l.into()))).unwrap();
+    assert_eq!("emulator-5554", devices[0].serial);
 }
 
 fn mock_adb_devices() -> Vec<AdbDevice> {
@@ -156,5 +169,34 @@ impl BtsnoopLogSettings {
             b"disabled\n" => Ok(BtsnoopLogMode::Disabled),
             _ => Err(anyhow!("Unknown BTsnoop log mode")),
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::adb::parse_adb_device;
+
+    #[test]
+    fn test_parse_adb_device_real_device() {
+        let devices = parse_adb_device([
+        r"List of devices attached",
+        r"21111FCN20000W         device usb:1234567X product:panther model:Pixel_7 device:panther transport_id:2",
+        r""].into_iter().map(|l| Ok(l.into()))).unwrap();
+        assert_eq!("21111FCN20000W", devices[0].serial);
+    }
+
+    #[test]
+    fn test_parse_adb_device_unauthorized() {
+        let devices = parse_adb_device(
+            [
+                r"List of devices attached",
+                r"21111FCN20000W         unauthorized usb:1048576X transport_id:3",
+                r"",
+            ]
+            .into_iter()
+            .map(|l| Ok(l.into())),
+        )
+        .unwrap();
+        assert_eq!(0, devices.len());
     }
 }
