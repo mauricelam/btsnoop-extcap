@@ -1,11 +1,13 @@
 //! Utilities for functionalities related to Android Debug Bridge.
 
-use std::{io::BufRead, process::Stdio, time::Duration};
+use std::{io::BufRead, path::PathBuf, process::Stdio, sync::OnceLock, time::Duration};
 
 use anyhow::anyhow;
 use log::debug;
 use thiserror::Error;
 use tokio::process::Command;
+
+static ADB_PATH: OnceLock<PathBuf> = OnceLock::new();
 
 #[derive(Error, Debug)]
 pub enum AdbRootError {
@@ -18,13 +20,14 @@ pub enum AdbRootError {
 
 /// Run adb root on the given device.
 pub async fn root(serial: &str) -> Result<(), AdbRootError> {
-    Command::new("adb")
+    Command::new(get_adb_path().await)
         .args(["-s", serial, "root"])
         .stdout(Stdio::null())
         .spawn()?
         .wait()
         .await?;
     let shell_uid = shell(serial, "id -u")
+        .await
         .stdout(Stdio::piped())
         .spawn()?
         .wait_with_output()
@@ -45,8 +48,8 @@ pub async fn root(serial: &str) -> Result<(), AdbRootError> {
 /// let cmd = adb::shell(serial, format!("echo {}", serial)).spawn()?;
 /// assert_eq!(cmd.wait_with_output().await?.stdout, serial);
 /// ```
-pub fn shell(serial: &str, command: &str) -> Command {
-    let mut cmd = Command::new("adb");
+pub async fn shell(serial: &str, command: &str) -> Command {
+    let mut cmd = Command::new(get_adb_path().await);
     cmd.args(["-s", serial, "shell", command]);
     cmd
 }
@@ -67,7 +70,7 @@ pub async fn adb_devices(adb_path: Option<String>) -> anyhow::Result<Vec<AdbDevi
     if adb_path == "mock" {
         return Ok(mock_adb_devices());
     }
-    let cmd = Command::new("adb")
+    let cmd = Command::new(get_adb_path().await)
         .arg("devices")
         .arg("-l")
         .stdout(Stdio::piped())
@@ -133,15 +136,18 @@ impl BtsnoopLogSettings {
             serial,
             &format!("setprop persist.bluetooth.btsnooplogmode {mode_str}"),
         )
+        .await
         .spawn()?
         .wait()
         .await?;
         shell(serial, "svc bluetooth disable")
+            .await
             .spawn()?
             .wait()
             .await?;
         tokio::time::sleep(Duration::from_secs(2)).await;
         shell(serial, "svc bluetooth enable")
+            .await
             .spawn()?
             .wait()
             .await?;
@@ -151,6 +157,7 @@ impl BtsnoopLogSettings {
     /// Gets the value of btsnoop log mode setting.
     pub async fn mode(serial: &str) -> anyhow::Result<BtsnoopLogMode> {
         let btsnooplogmode_proc = shell(serial, "getprop persist.bluetooth.btsnooplogmode")
+            .await
             .stdout(Stdio::piped())
             .spawn()?;
         let output = btsnooplogmode_proc.wait_with_output().await?;
@@ -161,6 +168,35 @@ impl BtsnoopLogSettings {
             _ => Err(anyhow!("Unknown BTsnoop log mode")),
         }
     }
+}
+
+async fn get_adb_path() -> &'static PathBuf {
+    if let Some(adb_path) = ADB_PATH.get() {
+        return adb_path;
+    }
+
+    async fn find_adb_path() -> PathBuf {
+        if let Ok(adb_path) = which::which("adb") {
+            return adb_path;
+        }
+        Command::new("sh")
+            .args(["-l", "-c", "which adb"])
+            .output()
+            .await
+            .map(|output| {
+                output
+                    .stdout
+                    .lines()
+                    .next()
+                    .and_then(|r| r.ok())
+                    .unwrap_or("adb".into())
+                    .into()
+            })
+            .unwrap_or("adb".into())
+    }
+
+    let adb_path = find_adb_path().await;
+    return ADB_PATH.get_or_init(|| adb_path);
 }
 
 #[cfg(test)]

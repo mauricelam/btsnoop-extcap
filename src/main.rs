@@ -175,6 +175,7 @@ async fn print_packets(
             serial,
             format!("tail -F -c +0 {btsnoop_log_file_path}").as_str(),
         )
+        .await
         .stdout(Stdio::piped())
         .spawn()?;
         info!("Running adb tail -F -c +0 {btsnoop_log_file_path}");
