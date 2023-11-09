@@ -47,7 +47,7 @@ based on an old configuration in Android that forwarded the btsnoop logs to port
 8872, which was
 [disabled](https://android.googlesource.com/platform/packages/modules/Bluetooth/+/4dcaa4646c0a44300a727e332859f518a08f6085)
 in 2015. While it can be turned back on by changing the source code, recompiling
-Android is incovenient in some cases.
+Android is inconvenient in some cases.
 
 Meanwhile, Android continues to provide the option to write the HCI logs to a
 local log file (in the `/system` partition, so root access is required to read
