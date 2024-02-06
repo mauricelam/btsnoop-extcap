@@ -164,8 +164,8 @@ impl BtsnoopLogSettings {
         match output.stdout.as_slice() {
             b"full\n" => Ok(BtsnoopLogMode::Full),
             b"filtered\n" => Ok(BtsnoopLogMode::Filtered),
-            b"disabled\n" => Ok(BtsnoopLogMode::Disabled),
-            _ => Err(anyhow!("Unknown BTsnoop log mode")),
+            b"disabled\n" | b"\n" => Ok(BtsnoopLogMode::Disabled),
+            e => Err(anyhow!("Unknown BTsnoop log mode: {:?}", String::from_utf8_lossy(e))),
         }
     }
 }
