@@ -1,6 +1,6 @@
 #![deny(unused_must_use)]
 
-use adb::{AdbRootError, BtsnoopLogMode, BtsnoopLogSettings};
+use adb::{AdbError, BtsnoopLogMode, BtsnoopLogSettings};
 use anyhow::anyhow;
 use btsnoop::{FileHeader, PacketHeader};
 use btsnoop_ext::Direction;
@@ -14,10 +14,11 @@ use pcap_file::{
 };
 use r_extcap::{
     cargo_metadata,
-    controls::asynchronous::{
-        util::AsyncReadExt as _, ExtcapControlSender, ExtcapControlSenderTrait,
+    config::StringConfig,
+    controls::{
+        asynchronous::{util::AsyncReadExt as _, ExtcapControlSender, ExtcapControlSenderTrait},
+        ButtonControl, ControlCommand, ControlPacket, EnableableControl,
     },
-    controls::{ButtonControl, ControlCommand, ControlPacket, EnableableControl},
     interface::{Dlt, Interface, Metadata},
     ExtcapArgs, ExtcapStep, PrintSentence,
 };
@@ -147,7 +148,7 @@ async fn print_packets(
         write_pcap_packets(File::open(test_file).await?, output_fifo, display_delay).await
     } else {
         match adb::root(serial).await {
-            Err(e @ AdbRootError::RootDeclined) => {
+            Err(e @ AdbError::RootDeclined) => {
                 extcap_control.info_message("Unable to run `adb root`. Make sure your device is on a userdebug or eng build").await?;
                 tokio::time::sleep(Duration::from_secs(1)).await;
                 Err(e)?
@@ -175,7 +176,7 @@ async fn print_packets(
             serial,
             format!("tail -F -c +0 {btsnoop_log_file_path}").as_str(),
         )
-        .await
+        .await?
         .stdout(Stdio::piped())
         .spawn()?;
         info!("Running adb tail -F -c +0 {btsnoop_log_file_path}");
@@ -215,17 +216,25 @@ async fn main() -> anyhow::Result<()> {
         .build();
     match args.extcap.run()? {
         ExtcapStep::Interfaces(interfaces_step) => {
-            let interfaces: Vec<Interface> = adb::adb_devices(args.adb_path)
-                .await?
-                .iter()
-                .map(|d| {
-                    Interface::builder()
-                        .value(format!("btsnoop-{}", d.serial).into())
-                        .display(format!("BTsnoop {} {}", d.display_name, d.serial).into())
+            let interfaces = match adb::adb_devices(args.adb_path).await {
+                Ok(adb_devices) => adb_devices
+                    .iter()
+                    .map(|d| {
+                        Interface::builder()
+                            .value(format!("btsnoop-{}", d.serial).into())
+                            .display(format!("BTsnoop {} {}", d.display_name, d.serial).into())
+                            .dlt(dlt.clone())
+                            .build()
+                    })
+                    .collect::<Vec<_>>(),
+                Err(e) => {
+                    vec![Interface::builder()
+                        .value("btsnoop-error".into())
+                        .display(format!("btsnoop error: {e:?}").into())
                         .dlt(dlt.clone())
-                        .build()
-                })
-                .collect();
+                        .build()]
+                }
+            };
             interfaces_step.list_interfaces(
                 &Metadata {
                     display_description: "Android btsnoop".into(),

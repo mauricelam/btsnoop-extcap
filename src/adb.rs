@@ -10,7 +10,9 @@ use tokio::process::Command;
 static ADB_PATH: OnceLock<PathBuf> = OnceLock::new();
 
 #[derive(Error, Debug)]
-pub enum AdbRootError {
+pub enum AdbError {
+    #[error("Adb not found. Make sure the `adb` executable is on your path")]
+    AdbNotFound,
     #[error("Root was declined. Check that you are on a userdebug or eng build.")]
     RootDeclined,
 
@@ -19,15 +21,18 @@ pub enum AdbRootError {
 }
 
 /// Run adb root on the given device.
-pub async fn root(serial: &str) -> Result<(), AdbRootError> {
-    Command::new(get_adb_path().await)
+pub async fn root(serial: &str) -> Result<(), AdbError> {
+    let Some(adb_path) = get_adb_path().await else {
+        return Err(AdbError::AdbNotFound);
+    };
+    Command::new(adb_path)
         .args(["-s", serial, "root"])
         .stdout(Stdio::null())
         .spawn()?
         .wait()
         .await?;
     let shell_uid = shell(serial, "id -u")
-        .await
+        .await?
         .stdout(Stdio::piped())
         .spawn()?
         .wait_with_output()
@@ -36,7 +41,7 @@ pub async fn root(serial: &str) -> Result<(), AdbRootError> {
     debug!("Shell UID={shell_uid:?}");
     if shell_uid != b"0\n" {
         // If only `adb root` will return a different exit code...
-        Err(AdbRootError::RootDeclined)?;
+        Err(AdbError::RootDeclined)?;
     }
     Ok(())
 }
@@ -48,10 +53,13 @@ pub async fn root(serial: &str) -> Result<(), AdbRootError> {
 /// let cmd = adb::shell(serial, format!("echo {}", serial)).spawn()?;
 /// assert_eq!(cmd.wait_with_output().await?.stdout, serial);
 /// ```
-pub async fn shell(serial: &str, command: &str) -> Command {
-    let mut cmd = Command::new(get_adb_path().await);
+pub async fn shell(serial: &str, command: &str) -> Result<Command, AdbError> {
+    let Some(adb_path) = get_adb_path().await else {
+        return Err(AdbError::AdbNotFound);
+    };
+    let mut cmd = Command::new(adb_path);
     cmd.args(["-s", serial, "shell", command]);
-    cmd
+    Ok(cmd)
 }
 
 /// A structure representing a device connected over ADB.
@@ -70,7 +78,10 @@ pub async fn adb_devices(adb_path: Option<String>) -> anyhow::Result<Vec<AdbDevi
     if adb_path == "mock" {
         return Ok(mock_adb_devices());
     }
-    let cmd = Command::new(get_adb_path().await)
+    let Some(adb_path) = get_adb_path().await else {
+        return Err(AdbError::AdbNotFound.into());
+    };
+    let cmd = Command::new(adb_path)
         .arg("devices")
         .arg("-l")
         .stdout(Stdio::piped())
@@ -126,7 +137,7 @@ pub enum BtsnoopLogMode {
 pub enum BtsnoopLogSettings {}
 
 impl BtsnoopLogSettings {
-    pub async fn set_mode(serial: &str, mode: BtsnoopLogMode) -> std::io::Result<()> {
+    pub async fn set_mode(serial: &str, mode: BtsnoopLogMode) -> anyhow::Result<()> {
         let mode_str = match mode {
             BtsnoopLogMode::Disabled => "disabled",
             BtsnoopLogMode::Filtered => "filtered",
@@ -136,18 +147,18 @@ impl BtsnoopLogSettings {
             serial,
             &format!("setprop persist.bluetooth.btsnooplogmode {mode_str}"),
         )
-        .await
+        .await?
         .spawn()?
         .wait()
         .await?;
         shell(serial, "svc bluetooth disable")
-            .await
+            .await?
             .spawn()?
             .wait()
             .await?;
         tokio::time::sleep(Duration::from_secs(2)).await;
         shell(serial, "svc bluetooth enable")
-            .await
+            .await?
             .spawn()?
             .wait()
             .await?;
@@ -157,7 +168,7 @@ impl BtsnoopLogSettings {
     /// Gets the value of btsnoop log mode setting.
     pub async fn mode(serial: &str) -> anyhow::Result<BtsnoopLogMode> {
         let btsnooplogmode_proc = shell(serial, "getprop persist.bluetooth.btsnooplogmode")
-            .await
+            .await?
             .stdout(Stdio::piped())
             .spawn()?;
         let output = btsnooplogmode_proc.wait_with_output().await?;
@@ -165,38 +176,36 @@ impl BtsnoopLogSettings {
             b"full\n" => Ok(BtsnoopLogMode::Full),
             b"filtered\n" => Ok(BtsnoopLogMode::Filtered),
             b"disabled\n" | b"\n" => Ok(BtsnoopLogMode::Disabled),
-            e => Err(anyhow!("Unknown BTsnoop log mode: {:?}", String::from_utf8_lossy(e))),
+            e => Err(anyhow!(
+                "Unknown BTsnoop log mode: {:?}",
+                String::from_utf8_lossy(e)
+            )),
         }
     }
 }
 
-async fn get_adb_path() -> &'static PathBuf {
+async fn get_adb_path() -> Option<&'static PathBuf> {
     if let Some(adb_path) = ADB_PATH.get() {
-        return adb_path;
+        return Some(adb_path);
     }
 
-    async fn find_adb_path() -> PathBuf {
+    async fn find_adb_path() -> Option<PathBuf> {
         if let Ok(adb_path) = which::which("adb") {
-            return adb_path;
+            return Some(adb_path);
         }
         Command::new("sh")
             .args(["-l", "-c", "which adb"])
             .output()
             .await
-            .map(|output| {
-                output
-                    .stdout
-                    .lines()
-                    .next()
-                    .and_then(|r| r.ok())
-                    .unwrap_or("adb".into())
-                    .into()
-            })
-            .unwrap_or("adb".into())
+            .ok()
+            .and_then(|output| output.stdout.lines().next())
+            .and_then(|result| result.ok().map(|s| s.into()))
     }
 
-    let adb_path = find_adb_path().await;
-    return ADB_PATH.get_or_init(|| adb_path);
+    find_adb_path().await.map(|adb_path| {
+        debug!("Found adb at {adb_path:?}");
+        ADB_PATH.get_or_init(|| adb_path)
+    })
 }
 
 #[cfg(test)]
