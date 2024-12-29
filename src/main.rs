@@ -14,7 +14,6 @@ use pcap_file::{
 };
 use r_extcap::{
     cargo_metadata,
-    config::StringConfig,
     controls::{
         asynchronous::{util::AsyncReadExt as _, ExtcapControlSender, ExtcapControlSenderTrait},
         ButtonControl, ControlCommand, ControlPacket, EnableableControl,

@@ -14,23 +14,22 @@ categories = ["parser-implementations"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-r-extcap = { version = "0.2.3" }
-btsnoop = { version = "0.2.0" }
+r-extcap = { version = "0.2.5" }
+btsnoop = { version = "0.2.1" }
 pcap-file = "2.0.0"
-anyhow = "1.0.68"
-clap = { version = "4.1.4", features = ["derive"] }
-nom-derive = "0.10.0"
+anyhow = "1.0.95"
+clap = { version = "4.5.23", features = ["derive"] }
+nom-derive = "0.10.1"
 nom = "7.1.3"
-regex = "1.7.1"
-tokio = { version = "1.25.0", features = ["full"] }
-log = "0.4.17"
-env_logger = "0.10.0"
-async-trait = "0.1.64"
-thiserror = "1.0.38"
-lazy_static = "1.4.0"
-which = "5.0.0"
+regex = "1.11.1"
+tokio = { version = "1.42.0", features = ["full"] }
+log = "0.4.22"
+env_logger = "0.11.6"
+thiserror = "2.0.9"
+lazy_static = "1.5.0"
+which = "7.0.1"
 
 [dev-dependencies]
-assert_cmd = "2.0.8"
-indoc = "2.0.1"
-predicates = "3.0.4"
+assert_cmd = "2.0.16"
+indoc = "2.0.5"
+predicates = "3.1.3"

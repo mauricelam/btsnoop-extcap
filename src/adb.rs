@@ -193,13 +193,17 @@ async fn get_adb_path() -> Option<&'static PathBuf> {
         if let Ok(adb_path) = which::which("adb") {
             return Some(adb_path);
         }
-        Command::new("sh")
+        if let Some(adb_path) = Command::new("sh")
             .args(["-l", "-c", "which adb"])
             .output()
             .await
             .ok()
             .and_then(|output| output.stdout.lines().next())
             .and_then(|result| result.ok().map(|s| s.into()))
+        {
+            return Some(adb_path);
+        }
+        None
     }
 
     find_adb_path().await.map(|adb_path| {
