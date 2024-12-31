@@ -19,7 +19,7 @@ use r_extcap::{
         ButtonControl, ControlCommand, ControlPacket, EnableableControl,
     },
     interface::{Dlt, Interface, Metadata},
-    ExtcapArgs, ExtcapStep, PrintSentence,
+    ExtcapArgs, ExtcapError, ExtcapStep, PrintSentence,
 };
 use std::{
     borrow::Cow,
@@ -35,6 +35,7 @@ use tokio::{
 
 mod adb;
 mod btsnoop_ext;
+mod install;
 
 /// An extcap plugin for Wireshark or tshark that captures the btsnoop HCI logs
 /// from an Android device connected over adb.
@@ -43,6 +44,11 @@ mod btsnoop_ext;
 pub struct BtsnoopArgs {
     #[command(flatten)]
     extcap: ExtcapArgs,
+
+    /// When specified, tries to install this extcap in the correct Wireshark
+    /// location.
+    #[arg(long)]
+    pub install: bool,
 
     /// Specify the path to the btsnoop log file on the device to stream from.
     /// For a special value with the format `local:<path>`, the log file will be
@@ -208,13 +214,19 @@ async fn main() -> anyhow::Result<()> {
     env_logger::init();
     let args = BtsnoopArgs::parse();
     debug!("Running with args: {args:#?}");
+
+    if args.install {
+        install::install_extcap().await?;
+        return Ok(());
+    }
+
     let dlt = Dlt::builder()
         .data_link_type(DataLink::BLUETOOTH_HCI_H4_WITH_PHDR)
         .name("BluetoothH4".into())
         .display("Bluetooth HCI UART transport layer plius pseudo-header".into())
         .build();
-    match args.extcap.run()? {
-        ExtcapStep::Interfaces(interfaces_step) => {
+    match args.extcap.run() {
+        Ok(ExtcapStep::Interfaces(interfaces_step)) => {
             let interfaces = match adb::adb_devices(args.adb_path).await {
                 Ok(adb_devices) => adb_devices
                     .iter()
@@ -243,12 +255,12 @@ async fn main() -> anyhow::Result<()> {
                 &[&*BT_LOGGING_ON_BUTTON, &*BT_LOGGING_OFF_BUTTON],
             );
         }
-        ExtcapStep::Dlts(_dlts_step) => {
+        Ok(ExtcapStep::Dlts(_dlts_step)) => {
             dlt.print_sentence();
         }
-        ExtcapStep::Config(_) => {}
-        ExtcapStep::ReloadConfig(_) => {}
-        ExtcapStep::Capture(mut capture_step) => {
+        Ok(ExtcapStep::Config(_)) => {}
+        Ok(ExtcapStep::ReloadConfig(_)) => {}
+        Ok(ExtcapStep::Capture(mut capture_step)) => {
             let interface = capture_step.interface;
             let serial = interface
                 .strip_prefix("btsnoop-")
@@ -284,6 +296,19 @@ async fn main() -> anyhow::Result<()> {
             }
             debug!("Capture ending");
         }
+        Err(ExtcapError::NotExtcapInput) => {
+            eprintln!(
+                concat!(
+                    "Missing input extcap command.\n",
+                    "\n",
+                    "This is an extcap plugin meant to be used with Wireshark or tshark.\n",
+                    "To install this plugin, run\n",
+                    "    {executable} --install",
+                ),
+                executable = std::env::args().next().unwrap_or("btsnoop-extcap".into())
+            )
+        }
+        Err(e) => Err(e)?,
     }
     Ok(())
 }

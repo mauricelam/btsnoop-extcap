@@ -11,7 +11,7 @@ static ADB_PATH: OnceLock<PathBuf> = OnceLock::new();
 
 #[derive(Error, Debug)]
 pub enum AdbError {
-    #[error("Adb not found. Make sure the `adb` executable is on your path")]
+    #[error("Adb not found. Please reinstall to configure the correct ADB path")]
     AdbNotFound,
     #[error("Root was declined. Check that you are on a userdebug or eng build.")]
     RootDeclined,
@@ -22,9 +22,7 @@ pub enum AdbError {
 
 /// Run adb root on the given device.
 pub async fn root(serial: &str) -> Result<(), AdbError> {
-    let Some(adb_path) = get_adb_path().await else {
-        return Err(AdbError::AdbNotFound);
-    };
+    let adb_path = load_adb_path_compat().await?;
     Command::new(adb_path)
         .args(["-s", serial, "root"])
         .stdout(Stdio::null())
@@ -54,9 +52,7 @@ pub async fn root(serial: &str) -> Result<(), AdbError> {
 /// assert_eq!(cmd.wait_with_output().await?.stdout, serial);
 /// ```
 pub async fn shell(serial: &str, command: &str) -> Result<Command, AdbError> {
-    let Some(adb_path) = get_adb_path().await else {
-        return Err(AdbError::AdbNotFound);
-    };
+    let adb_path = load_adb_path_compat().await?;
     let mut cmd = Command::new(adb_path);
     cmd.args(["-s", serial, "shell", command]);
     Ok(cmd)
@@ -78,9 +74,7 @@ pub async fn adb_devices(adb_path: Option<String>) -> anyhow::Result<Vec<AdbDevi
     if adb_path == "mock" {
         return Ok(mock_adb_devices());
     }
-    let Some(adb_path) = get_adb_path().await else {
-        return Err(AdbError::AdbNotFound.into());
-    };
+    let adb_path = load_adb_path_compat().await?;
     let cmd = Command::new(adb_path)
         .arg("devices")
         .arg("-l")
@@ -184,7 +178,58 @@ impl BtsnoopLogSettings {
     }
 }
 
-async fn get_adb_path() -> Option<&'static PathBuf> {
+fn config_path() -> Option<PathBuf> {
+    let exe_path = std::env::current_exe().ok()?;
+    Some(exe_path.parent()?.join(crate::install::CONFIG_FILE_NAME))
+}
+
+async fn load_adb_path_from_config() -> anyhow::Result<String> {
+    let Some(config_path) = config_path() else {
+        anyhow::bail!("Cannot resolve path to config file")
+    };
+    let string = String::from_utf8(tokio::fs::read(config_path).await?)?;
+    parse_adb_path(&string)
+        .ok_or_else(|| anyhow::anyhow!("ADB_PATH config not found in config file"))
+}
+
+fn parse_adb_path(string: &str) -> Option<String> {
+    for line in string.lines() {
+        match line.split_once('=') {
+            Some(("ADB_PATH", value)) => return Some(value.to_string()),
+            _ => continue,
+        }
+    }
+    None
+}
+
+#[test]
+fn test_parse_config() {
+    assert_eq!(
+        parse_adb_path(r#"ADB_PATH=testing/123"#).unwrap(),
+        "testing/123"
+    );
+}
+
+/// Load the adb_path.
+///
+/// The recommended way to configure this is by setting `ADB_PATH={adb_path}` in
+/// the `btsnoop-config` file, done by running `btsnoop-extcap --install`.
+///
+/// If that is not available, the legacy way is to try to resolve it from PATH.
+/// This is no longer recommended because PATH may not be set when Wireshark is
+/// launched from, say, a desktop launcher.
+async fn load_adb_path_compat() -> Result<String, AdbError> {
+    if let Ok(configured_path) = load_adb_path_from_config().await {
+        Ok(configured_path)
+    } else {
+        resolve_adb_path()
+            .await
+            .ok_or(AdbError::AdbNotFound)
+            .map(|f| f.to_string_lossy().to_string())
+    }
+}
+
+pub async fn resolve_adb_path() -> Option<&'static PathBuf> {
     if let Some(adb_path) = ADB_PATH.get() {
         return Some(adb_path);
     }
