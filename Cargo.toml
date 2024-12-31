@@ -1,6 +1,6 @@
 [package]
 name = "btsnoop-extcap"
-version = "0.1.6"
+version = "0.1.7"
 edition = "2021"
 authors = ["Maurice Lam <mauriceprograms@gmail.com>"]
 description = "View Android's btsnoop logs (Bluetooth HCI logs) in Wireshark"
