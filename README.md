@@ -11,17 +11,17 @@ $ cargo install btsnoop-extcap
 # Running btsnoop-extcap from command line is not part of the normal workflow,
 # but it will print out installation instructions. For example:
 $ btsnoop-extcap
-Unknown extcap phase. This is an extcap plugin meant to be used with Wireshark or tshark.
-To install this plugin for use with Wireshark, symlink or copy this executable
-to your Wireshark extcap directory
+Missing input extcap command.
 
-# Run the symlink command in the error message (for Wireshark 4.1 or later)
-$ mkdir -p "$HOME/.local/lib/wireshark/extcap/" && \
-  ln -s "$HOME/.cargo/bin/btsnoop-extcap" "$HOME/.local/lib/wireshark/extcap/btsnoop-extcap"
+This is an extcap plugin meant to be used with Wireshark or tshark.
+To install this plugin, run
+    btsnoop-extcap --install
 
-# or for Wireshark 4.0 or before
-$ mkdir -p "$HOME/.cargo/wireshark/extcap/" && \
-  ln -s "$HOME/.cargo/bin/btsnoop-extcap" "$HOME/.cargo/wireshark/extcap/btsnoop-extcap"
+# Run the given command to create the symlink
+$ btsnoop-extcap --install
+Is your Wireshark 4.1 or above? [Y/n] y
+Creating symlink at "~/.local/lib/wireshark/extcap/btsnoop-extcap"
+Enter path to adb executable [Default: ~/Library/Android/sdk/platform-tools/adb]: <Enter>
 ```
 
 _Root is required on the selected Android device._
