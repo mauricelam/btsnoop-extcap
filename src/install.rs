@@ -10,19 +10,45 @@ use crate::adb;
 pub const CONFIG_FILE_NAME: &str = "btsnoop-config";
 
 pub async fn install_extcap() -> anyhow::Result<()> {
-    let home_dir = dirs::home_dir().ok_or(anyhow::anyhow!("Unable to find home directory"))?;
-    let extcap_dir = if input_bool("Is your Wireshark 4.1 or above? [Y/n] ")? != Some(false) {
-        // Wireshark 4.1 or above
-        home_dir.join(".local/lib/wireshark/extcap")
+    let extcap_dir = if cfg!(unix) {
+        let home_dir = dirs::home_dir().ok_or(anyhow::anyhow!("Unable to find home directory"))?;
+        if input_bool("Is your Wireshark 4.1 or above? [Y/n] ")? != Some(false) {
+            // Wireshark 4.1 or above
+            home_dir.join(".local/lib/wireshark/extcap")
+        } else {
+            // Wireshark 4.0 or below
+            home_dir.join(".config/wireshark/extcap")
+        }
     } else {
-        // Wireshark 4.0 or below
-        home_dir.join(".config/wireshark/extcap")
+        println!("Enter Wireshark extcap path (Help -> About Wireshark -> Folders -> Personal Extcap path):");
+        match input("[Default: C:\\Program Files\\Wireshark\\extcap]: ")? {
+            s if s.is_empty() => PathBuf::from("C:\\Program Files\\Wireshark\\extcap"),
+            s => PathBuf::from(s),
+        }
     };
     symlink_executable(&extcap_dir).await?;
     resolve_adb_path(&extcap_dir).await?;
     Ok(())
 }
 
+#[cfg(windows)]
+async fn symlink_executable(extcap_dir: &Path) -> anyhow::Result<()> {
+    std::fs::create_dir_all(extcap_dir)?;
+    let executable_dest = extcap_dir.join("btsnoop-extcap");
+    if std::fs::exists(&executable_dest)?
+        && input_bool(&format!(
+            "Executable {executable_dest:?} already exists. Overwrite? [y/N]"
+        ))? != Some(true)
+    {
+        return Ok(());
+    }
+    println!("Copying file to {executable_dest:?}");
+    let _ = tokio::fs::remove_file(&executable_dest).await;
+    tokio::fs::copy(std::env::current_exe()?, executable_dest).await?;
+    Ok(())
+}
+
+#[cfg(unix)]
 async fn symlink_executable(extcap_dir: &Path) -> anyhow::Result<()> {
     std::fs::create_dir_all(extcap_dir)?;
     let executable_dest = extcap_dir.join("btsnoop-extcap");
