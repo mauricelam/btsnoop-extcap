@@ -5,8 +5,9 @@ use anyhow::anyhow;
 use btsnoop::{FileHeader, PacketHeader};
 use btsnoop_ext::Direction;
 use clap::Parser;
+use flexi_logger::FileSpec;
 use lazy_static::lazy_static;
-use log::{debug, info, warn};
+use log::{debug, info, warn, LevelFilter};
 use nom_derive::Parse as _;
 use pcap_file::{
     pcap::{PcapHeader, PcapPacket, PcapWriter},
@@ -211,7 +212,19 @@ lazy_static! {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    env_logger::init();
+    if cfg!(debug_assertions) {
+        // View the logs with `tail -F /tmp/btsnoop-extcap.log`
+        flexi_logger::Logger::with(LevelFilter::Debug)
+            .log_to_file(
+                FileSpec::default()
+                    .directory("/tmp")
+                    .basename("btsnoop-extcap")
+                    .suppress_timestamp()
+                    .suffix("log"),
+            )
+            .write_mode(flexi_logger::WriteMode::Direct)
+            .start()?;
+    }
     let args = BtsnoopArgs::parse();
     debug!("Running with args: {args:#?}");
 
