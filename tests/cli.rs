@@ -5,7 +5,7 @@ use std::process::Command;
 
 #[test]
 fn list_interfaces() {
-    let mut cmd = Command::cargo_bin("btsnoop-extcap").unwrap();
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("btsnoop-extcap"));
     cmd.arg("--extcap-interfaces")
         .arg("--extcap-version")
         .arg("v0_testing")
@@ -26,7 +26,7 @@ fn contains(needle: &[u8]) -> impl Fn(&[u8]) -> bool + '_ {
 #[cfg(not(target_os = "windows"))] // TODO: Fix the /dev/stdout usage for Windows
 #[test]
 fn capture() {
-    let mut cmd = Command::cargo_bin("btsnoop-extcap").unwrap();
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("btsnoop-extcap"));
     cmd.arg("--extcap-interface")
         .arg("btsnoop-SERIAL")
         .arg("--capture")
@@ -43,7 +43,7 @@ fn capture() {
 
 #[test]
 fn missing_fifo() {
-    let mut cmd = Command::cargo_bin("btsnoop-extcap").unwrap();
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("btsnoop-extcap"));
     cmd.arg("--extcap-interface")
         .arg("btsnoop-SERIAL")
         .arg("--capture");
